@@ -1,0 +1,180 @@
+---
+title: "Formatting elephant population data"
+author: "Lei Song"
+date: "5/31/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(here)
+data_path <- here("data")
+```
+
+## Elephant occurrence
+
+We tried to find any public occurrence datasets to use. So far, GBIF occurrence dataset and a publicly available dataset related to genotype can be used as occurrence.
+
+### GBIF
+
+Query the occurrence data using GBIF API. To reduce the impacts of landscape change, we only selected the occurrence after year 2015 to use. Then we cleaned the occurrence for any possible errors. 
+
+```{r}
+# remotes::install_github("ropensci/scrubr")
+library(scrubr, quietly = TRUE)
+library(lubridate, quietly = TRUE)
+library(rgbif, quietly = TRUE)
+library(sf, quietly = TRUE)
+
+## Set the time interval for querying on GBIF
+start_year <- 2015
+year <- sprintf('%s,%s',  start_year, year(Sys.Date()))
+
+# Search
+nm_search <- "Loxodonta africana (Blumenbach, 1797)"
+occ <- occ_search(scientificName = nm_search,
+                  country = "TZ",
+                  hasCoordinate = TRUE,
+                  limit = 200000,
+                  year = year,
+                  hasGeospatialIssue = FALSE)
+
+# Clean the dataset
+occ <- dframe(occ$data) %>%
+    coord_impossible() %>%
+    coord_incomplete() %>%
+    coord_unlikely() %>% 
+    dedup()
+
+# Convert to sf
+occ <- st_as_sf(occ[, c("decimalLongitude", "decimalLatitude")], 
+                coords = c("decimalLongitude", "decimalLatitude"),
+                crs = 4326)
+rm(start_year, year, nm_search)
+```
+
+### Genotype dataset
+
+This dataset is shared by the paper *Genetic connectivity and population structure of African savanna elephants (Loxodonta africana) in Tanzania ([https://doi.org/10.1002/ece3.6728](https://doi.org/10.1002/ece3.6728))*. We converted the records to spatial points to use.
+
+```{r}
+fname <- file.path(data_path, "population/occurrence",
+                   "genetype_dataset_15_17.csv")
+occ2 <- read.csv(fname, stringsAsFactors = FALSE)
+occ2 <- st_as_sf(occ2[, c("Lat", "Long")], 
+                coords = c("Long", "Lat"),
+                crs = 4326)
+rm(fname)
+```
+
+### Combine two datasets and clean
+
+Combine two datasets and clip to the national boundary.
+
+```{r}
+occ <- rbind(occ, occ2); rm(occ2)
+bry <- read_sf(file.path(data_path, "tanzania.geojson"))
+occ <- occ[unique(unlist(st_intersects(bry, occ))), ]
+
+# Save out and clean
+write_sf(occ, file.path(data_path, "ele_occurrence.geojson"))
+rm(bry, occ)
+```
+
+## Elephhant census
+
+The datasets are inquired from [elephant database](https://africanelephantdatabase.org). People want to use these datasets should inquired directly from them.
+
+Because the records of occurrence are limited in this case study, we manually split these census blocks into three clusters (in `population/clusters`) to do spatial thinning to occurrence records.
+
+```{r}
+census_tz <- read_sf(
+    file.path(data_path, 
+              "population/elephant_database/Input_Zones_Layer",
+              "AED_Input_Zones_2016_Data_Sharing.shp")) %>% 
+    filter(country == "Tanzania") %>% 
+    filter(year > 2010)
+census_tz$estimate <- as.numeric(census_tz$estimate)
+census_tz$area_rep <- as.numeric(census_tz$area_rep)
+write_sf(census_tz, file.path(data_path, "population/census.geojson"))
+```
+
+To evaluate the climatic space of elephants, we generated pseudo-occurrence dataset using a density-based sampling in each input zones.
+
+```{r}
+# Not sample absence because can't know for sure
+n_pseudo_occ <- floor(sum(census_tz$estimate) * 0.1)
+n_pseudo_block <- census_tz %>% filter(estimate > 0) %>% 
+    mutate(density = estimate / area_sqkm) %>% 
+    mutate(sample = ceiling(estimate / sum(estimate) * n_pseudo_occ)) %>% 
+    select(sample); rm(n_pseudo_occ)
+write_sf(n_pseudo_block, 
+         file.path(data_path, "population/n_pseudo_block.geojson"))
+```
+
+## Code for the records
+
+Some abandoned/not used for now code to put here.
+
+```{r}
+bry <- read_sf(file.path(data_path, "tanzania.geojson"))
+occ <- read_sf(file.path(data_path, "ele_occurrence.geojson"))
+
+# Check the points
+ids <- st_nearest_feature(occ)
+nn_dists <- st_distance(occ, occ[ids, ], by_element = TRUE)
+
+# Check
+ggplot() +
+    geom_sf(data = bry, color = "black") +
+    geom_sf(data = occ, color = "green", size = 0.6) +
+    geom_sf(data = occ_thin, color = "red", size = 0.8)
+    theme_minimal()
+    
+# Spatial thinning the presence points
+template <- vars[1]; nms <- names(template)
+template <- template %>% mutate({{nms}} := NA)
+occ <- st_rasterize(occ, template) %>%
+  st_xy2sfc(as_points = T) %>% st_as_sf() %>%
+  select(geometry)
+rm(nms)
+
+# Do spatial thinning on the records of occurrence to reduce.
+sf_use_s2(FALSE)
+# Balance the samples in different clusters
+fnames <- list.files(file.path(data_path, "population/clusters"),
+                     full.names = TRUE)
+clusters <- do.call(rbind, lapply(fnames, function(fname) {
+    read_sf(fname) %>% st_union() %>% st_convex_hull() %>% 
+        st_buffer(0.5) %>% st_as_sf()
+}))
+st_geometry(clusters) <- 'geometry'
+clusters <- clusters %>% mutate(id = 1:nrow(.))
+rm(fnames)
+
+occ_clusters <- st_join(occ, clusters)
+occ_clusters %>% group_by(id) %>% 
+    summarise(n = n()) %>% st_drop_geometry()
+
+# According to the result above, cluster1 has way more samples
+# so it worth to do a spatial thinning in cluster1.
+# First, make the points 10km apart in cluster1
+occ_cluster1 <- occ_clusters %>% filter(id == 1)
+nn_grids <- st_make_grid(bry, cellsize = 0.00898315 * 30) # roughly 30 km
+nn_grids <- nn_grids[unique(unlist(st_intersects(occ_cluster1, nn_grids)))]
+occ_cluster1 <- do.call(rbind, lapply(1:length(nn_grids), function(n) {
+    grd <- nn_grids[n]
+    pts <- st_intersection(occ_cluster1, grd)
+    if (nrow(pts) > 1) {
+        ctd <- st_centroid(grd)
+        dists <- st_distance(pts, ctd)
+        pts[which.min(dists), ]
+    } else pts})); rm(nn_grids)
+
+# Collect results
+occ <- rbind(occ_cluster1, occ_clusters %>% filter(id != 1)) %>% 
+    select(-id)
+
+write_sf(occ, file.path(data_path, "occ_thin_1000m.geojson"))
+```
+
