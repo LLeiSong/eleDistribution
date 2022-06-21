@@ -457,7 +457,7 @@ rm(railways, roads, big_roads, other_roads); gc()
 
 ```{r}
 library(rast)
-source(file.path(here, "scripts/upscaling.R"))
+source(file.path(here(), "scripts/upscale_lc.R"))
 
 # Set original map path
 fname <- file.path(data_path, 'landcover.tif')
@@ -476,13 +476,27 @@ upscale_lc(fname, 30, TRUE, dst_fname)
 rm(fname, dst_fname)
 ```
 
-## Data pre-processing
-### Environmental variables
+## Data pre-processing for upper level 
 
 Prepare environmental variables to do habitat modeling. Use NDVI map as the template to resample just for convenience. And because most of the datasets have projection of 4326, so we also use this projection for all calculation in order to save the processing time.
 
-#### 1000m
-##### Distances
+```{r}
+library(here)
+library(sf)
+library(terra)
+library(stringr)
+source(file.path(here(), "scripts/ul_var_prep.R"))
+
+scales <- c("1km", "2km", "4km", "6km", "8km", "10km")
+lapply(scales, function(scale) {
+    message(sprintf("Prepare variables at %s scale.", scale))
+    ul_var_prep(data_path, scale)
+})
+```
+
+## Data-preprocessing for lower scale
+
+### Distances
 
 ```{r}
 library(terra)
@@ -492,7 +506,7 @@ library(rgrass7)
 ## Use GRASS GIS for speed
 ## set up
 gisBase <- '/Applications/GRASS-7.8.app/Contents/Resources'
-crs_mer <- crs(rast(file.path(data_path, "ndvi_harmonic_1000m.tif")), proj = T)
+crs_mer <- crs(rast(file.path(data_path, "ndvi_harmonic_1km.tif")), proj = T)
 initGRASS(gisBase = gisBase,
           home = tempdir(),
           gisDbase = tempdir(),  
@@ -502,7 +516,7 @@ initGRASS(gisBase = gisBase,
 execGRASS("g.proj", flags = "c", 
           proj4 = crs_mer)
 execGRASS('r.in.gdal', flags = c("o", "overwrite"),
-          input = file.path(data_path, "ndvi_harmonic_1000m.tif"),
+          input = file.path(data_path, "ndvi_harmonic_1km.tif"),
           band = 1,
           output = "template")
 execGRASS("g.region", raster = "template")
@@ -521,7 +535,7 @@ execGRASS('r.grow.distance', flags = c("overwrite"),
                                         distance = 'big_roads'))
 execGRASS('r.out.gdal', flags = c("m", "overwrite"),
                       output = file.path(data_path, 
-                                         "dist_to_big_roads_1000m.tif"),
+                                         "dist_to_big_roads_1km.tif"),
                       input = "big_roads")
 
 # Other roads
@@ -625,101 +639,17 @@ execGRASS('r.out.gdal', flags = c("m", "overwrite"),
                       input = "buildings_density")
 ```
 
-##### Others
+### Ohters
 
 ```{r}
-library(sf)
-library(terra)
-library(stringr)
-
-# Boundary
-bry <- read_sf(file.path(data_path, "tanzania.geojson"))
-bry <- vect(bry["name"])
-
-# resources
-ndvi <- rast(file.path(data_path, "ndvi_harmonic_1000m.tif"))
-ndvi_mean <- rast(file.path(data_path, "ndvi_mean_1000m.tif"))
-names(ndvi_mean) <- "ndvi_mean"
-names(ndvi) <- paste0("ndvi_", names(ndvi))
-ndvi <- c(ndvi, ndvi_mean); rm(ndvi_mean)
-
 # Landcover type
 lc <- rast(file.path(data_path, "landcover_1000m.tif"))
 lc <- resample(lc, ndvi[[1]], method = "near")
 names(lc) <- "Land_cover"
 
-# climate
-wc <- rast(file.path(data_path, "worldclim2_30s.tif"))
-wc <- resample(wc, ndvi[[1]], method = "bilinear")
-nms <- as.integer(str_extract(names(wc), "[0-9]+$"))
-wc <- subset(wc, order(nms)); rm(nms)
-names(wc) <- paste0("bio_", 1:19)
-
-# elevation
-dsm <- rast(file.path(data_path, "dsm_tanzania.tif"))
-dsm <- resample(dsm, ndvi[[1]], method = "bilinear")
-names(dsm) <- "DSM"
-terrains <- terrain(dsm, v = c("slope", "roughness", "TRI"), neighbors = 8)
-
 # Distances
 fnames <- list.files(data_path, pattern = "^dist", full.name = TRUE)
 dists <- rast(fnames); rm(fnames)
 names(dists) <- gsub("_1000m", "", names(dists))
-
-# Concatenate them
-vars <- c(ndvi, wc, dsm, terrains, dists, lc)
-vars <- mask(crop(vars, bry), bry)
-rm(bry, ndvi, wc, dsm, terrains, dists, lc)
-
-# Write out
-writeRaster(vars, file.path(data_path, "variables_1000m.tif"))
-```
-
-##### WDPA as the regulation
-
-WPDA is used to make the regulation of sampling efforts for MaxEnt. May not like other studies that people don't fully know if the samples are biased or not, we know that the samples of elephant occurrence are strongly biased to national parks/protected ares. Thus, reducing the sampling bias to it is very necessary for environmental suitability modeling.
-
-```{r}
-library(terra)
-library(rgrass7)
-
-# Distances
-## Use GRASS GIS for speed
-## set up
-gisBase <- '/Applications/GRASS-7.8.app/Contents/Resources'
-crs_mer <- crs(rast(file.path(data_path, "ndvi_harmonic_1000m.tif")), proj = T)
-initGRASS(gisBase = gisBase,
-          home = tempdir(),
-          gisDbase = tempdir(),  
-          mapset = 'PERMANENT', 
-          location = 'osm', 
-          override = TRUE)
-execGRASS("g.proj", flags = "c", 
-          proj4 = crs_mer)
-execGRASS('r.in.gdal', flags = c("o", "overwrite"),
-          input = file.path(data_path, "ndvi_harmonic_1000m.tif"),
-          band = 1,
-          output = "template")
-execGRASS("g.region", raster = "template")
-
-wdpa <- read_sf(file.path(data_path, "wdpa_tanzania.geojson"))
-# Remove pure forest and marine reserves
-nms <- unique(wdpa$DESIG)[grepl("forest|Forest|Marine", unique(wdpa$DESIG))]
-wdpa <- wdpa[!wdpa$DESIG %in% nms, ]; rm(nms)
-
-writeVECT(wdpa, 'wdpa', v.in.ogr_flags = 'overwrite')
-rm(wdpa)
-execGRASS('v.to.rast', flags = c("overwrite"),
-                      parameters = list(input = 'wdpa', 
-                                        output = 'wdpa',
-                                        use = 'val',
-                                        value = 1))
-execGRASS('r.grow.distance', flags = c("overwrite"),
-                      parameters = list(input = 'wdpa', 
-                                        distance = 'wdpa'))
-execGRASS('r.out.gdal', flags = c("m", "overwrite"),
-                      output = file.path(data_path, 
-                                         "bias_to_wdpa_1000m.tif"),
-                      input = "wdpa")
 ```
 
