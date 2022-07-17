@@ -1,0 +1,40 @@
+---
+title: 'Part2: Landscape utilization modeling at patch level'
+author: "Lei Song"
+date: "7/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+From part one, we get the prior knowledge of landscape priority at home range level. This part will focus on modeling landscape utilization at patch level. Thus, the variables used will be slightly different from part 1. In part 1, large-scale summarized variables are mainly be used, such as landscape metrics, climatic condition, long-term food resource, and density-based features. In this part, detailed landcover, we used some basic landscape metrics, surface roughness, and distance-based features.
+
+Based on the normal size of elephant herd and available datasets, we selected 100m as the resolution.
+
+### Occurrence of African savanna elephant
+
+This data has been prepared in part1.
+
+## Environmental variables
+### Landcover and landscape metrics
+
+```{r}
+
+```
+
+### Surface roughness
+
+```{r}
+
+```
+
+### Distances
+
+```{r}
+
+```
+
