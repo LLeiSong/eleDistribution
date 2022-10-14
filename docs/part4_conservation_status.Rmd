@@ -1,0 +1,365 @@
+---
+title: 'Part4: Habitat quality and conservation status analysis'
+author: "Lei Song"
+date: "7/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sf)
+library(here)
+library(raster)
+library(terra)
+library(ggplot2)
+library(purrr)
+library(pbmcapply)
+library(dplyr)
+
+data_path <- here("data")
+rst_path <- file.path(data_path, "rasters")
+vct_path <- file.path(data_path, "vectors")
+pat_path <- file.path(data_path, "vars_patch")
+result_path <- here("results")
+```
+
+
+## Introduction
+
+This document covers the analysis of conservation status of each protected area/national park. The analysis includes:
+
+**Landscape conditions:**
+
+- Landscape metrics at landscape level
+- Landscape metrics at class level (Savanna, the main habitat of Savanna elephants)
+
+**Elephant habitat:**
+
+- Suitability
+
+**Habitat connectivity:**
+
+- Inter-protected areas
+- Intra-protected areas
+
+## Computation
+
+```{r}
+library(landscapemetrics)
+
+census <- read_sf(file.path(data_path, "observations/census.geojson"))
+landcover <- rast(file.path(data_path, "landcover/landcover_100m.tif"))
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated_nothin.tif"))
+
+crs_to <- crs(landcover)
+
+stats_census <- lapply(1:nrow(census), function(n) {
+    message(sprintf("Polygon No.%s", n))
+    pa <- census %>% slice(n)
+    pa_reproj <- pa %>% st_transform(crs_to) %>% vect()
+    
+    lc_pa <- mask(crop(landcover, pa_reproj), pa_reproj)
+    
+    if (isTRUE(global(lc_pa, fun = "isNA") != ncell(lc_pa))) {
+        classes_pa <- classify(lc_pa, rbind(c(1, 1), c(2, 2),
+                                            c(3, 3), c(4, 3),
+                                            c(5, 4), c(8, 3)), others = NA)
+        suit_pa <- mask(crop(suitability, pa %>% vect()), pa %>% vect())
+        
+        ls_metrics <- calculate_lsm(lc_pa, level = c("landscape"))
+        class_metrics <- calculate_lsm(classes_pa, level = c("class"))
+        stats_suit <- values(suit_pa) %>% na.omit()
+        stats_suit <- data.frame("mean" = mean(stats_suit, na.rm = TRUE), 
+                                 "sd" = sd(stats_suit, na.rm = TRUE),
+                                 "min" = min(stats_suit, na.rm = TRUE),
+                                 "max" = max(stats_suit, na.rm = TRUE))
+        
+        result <- list("ls_metrics" = ls_metrics,
+                       "class_metrics" = class_metrics,
+                       "stats_suit" = stats_suit,
+                       "census" = pa)
+    } else result <- NULL
+    
+    # Return
+    save(result, 
+         file = file.path(result_path, "temp", sprintf("census_%s.rda", n)))
+    result
+})
+
+stats_census_tight <- do.call(rbind, lapply(1:length(stats_census), 
+                                          function(n) {
+    # message(sprintf("Polygon No.%s", n))
+    stats_pa <- stats_census[[n]]
+    # landscape level
+    ls_metrics <- stats_pa$ls_metrics %>% 
+        select(metric, value) %>% 
+        pivot_wider(names_from = metric, values_from = value)
+    
+    # class level
+    class_metrics <- stats_pa$class_metrics
+    classes <- unique(class_metrics$class)
+    missing_class <- setdiff(1:4, classes)
+    if (length(missing_class) > 0) {
+        nms <- unique(class_metrics$metric)
+        class_metrics <- rbind(
+            class_metrics,
+            data.frame(
+                layer = 1,
+                level = "class",
+                class = sort(rep(missing_class, length(nms))),
+                id = NA,
+                metric = rep(nms, length(missing_class)),
+                value = 0)) %>% 
+            arrange(metric, class)}
+    
+    # Group metrics
+    class_metrics <- class_metrics %>% 
+        filter(!str_detect(metric, "enn")) %>% 
+        mutate(metric = paste(class, metric, sep = "_")) %>%
+        dplyr::select(metric, value) %>% 
+        pivot_wider(names_from = metric)
+    
+    nms <- gsub("1", "cropland", names(class_metrics))
+    nms <- gsub("2", "tree", nms)
+    nms <- gsub("3", "savanna", nms)
+    nms <- gsub("4", "water", nms)
+    names(class_metrics) <- nms
+    
+    # Suitability
+    suit <- stats_pa$stats_suit
+    
+    # Gather result, check, and return
+    result <- cbind(stats_pa$census, suit, ls_metrics, class_metrics)
+    if (ncol(result) != 284) message(sprintf("Mising columns in polygon No.%s", n))
+    result
+}))
+
+save(stats_census_tight, file = file.path(result_path, "stats_census_tight.rda"))
+
+vals_model <- stats_census_tight %>% st_drop_geometry() %>% 
+    select(-c(inpzone, stratum, density, area_sqkm))
+
+variable_selected <- do.call(rbind, lapply(names(vals_model)[-1], function(col_name) {
+    val_rm_na <- data.frame(
+        'suit' = vals_model %>% pull(estimate), 
+        "metric" = vals_model %>% pull(all_of(col_name))) %>% 
+        na.omit()
+    val <- cor(val_rm_na$suit, val_rm_na$metric) %>% 
+        data.frame() %>% mutate(name = col_name)
+    names(val) <- c("cor", "name")
+    val
+})) %>% filter(abs(cor) >= 0.5) %>% pull(name)
+
+vals_model <- vals_model %>% select(estimate, all_of(variable_selected)) %>% 
+    mutate(id = 1:nrow(.))
+
+cors <- unlist(lapply(1:500, function(n) {
+    set.seed(n)
+    vals_train <- vals_model %>% sample_frac(size = 0.8)
+    vals_test <- vals_model %>% filter(!id %in% vals_train$id)
+    vals_train <- vals_train %>% select(-id)
+    vals_test <- vals_test %>% select(-id)
+    
+    library(e1071)
+    mod <- svm(estimate ~ ., data = vals_train)
+    pred_test <- predict(mod, vals_test)
+    cor(pred_test, vals_test$estimate)
+}))
+
+```
+
+### Population vs. Patch area
+
+```{r}
+library(landscapemetrics)
+
+census <- read_sf(file.path(data_path, "observations/census.geojson"))
+patches <- rast(file.path(result_path, "ele_pa.tif"))
+patches[patches == 0] <- NA
+
+stats_census <- sapply(1:nrow(census), function(n) {
+    message(sprintf("Polygon No.%s", n))
+    pa <- census %>% slice(n) %>% vect()
+    
+    patch_pa <- mask(crop(patches, pa), pa)
+    
+    if (isTRUE(global(patch_pa, fun = "isNA") != ncell(patch_pa))) {
+        p_core <- lsm_p_core(
+            patch_pa,
+            directions = 8,
+            consider_boundary = FALSE,
+            edge_depth = 1) %>% 
+            pull(value) %>% sum()
+    } else p_core <- 0
+    
+    # Return
+    p_core
+})
+
+census <- census %>% mutate(patch_core = stats_census / (0.008333333^2))
+census$estimate <- log(census$estimate)
+census$patch_core <- log(census$patch_core)
+
+ggplot(census %>% st_drop_geometry(), 
+       aes(x = patch_core, y = estimate)) + 
+    geom_point(size = 10) +
+    geom_smooth(method = lm, color = "red", size = 6) +
+    geom_smooth(data = census %>% 
+                  st_drop_geometry() %>% 
+                  filter(patch_core <= 1),
+                aes(x = patch_core, y = estimate),
+                method = lm, color = "blue", size = 6) +
+    geom_text(data = census %>% 
+                  st_drop_geometry() %>% 
+                  filter(patch_core > 1) %>% 
+                  mutate(label = c("Ruaha", "Selous GR", "Serengeti")),
+              aes(label = label), 
+              nudge_x = -0.6, nudge_y = -0.25, 
+              check_overlap = T, size = 30) +
+    xlab(expression(paste("Core area of habitat patch (", 
+                          km^2,")", sep=""))) +
+    ylab("Estimated population") +
+    theme_bw() +
+    theme(text = element_text(size = 80))
+ggsave("docs/figures/pop_vs_habitat_area.png", 
+       width = 60, height = 60, units = "cm")
+```
+
+
+```{r}
+library(landscapemetrics)
+
+wdpa <- read_sf(file.path(vct_path, "wdpa_tanzania.geojson")) %>% 
+    arrange(-GIS_AREA) %>% 
+    select(WDPAID, NAME, DESIG_ENG) %>% 
+    filter(!DESIG_ENG %in% 
+               c("Marine Reserve", "Marine Park",
+                 "Ramsar Site, Wetland of International Importance")) %>% 
+    slice(unique(unlist(st_intersects(read_sf(
+        file.path(vct_path, "mainland_tanzania.geojson")), .)))) %>% 
+    slice(setdiff(1:nrow(.), grep("Mangrove", NAME)))
+landcover <- rast(file.path(data_path, "landcover/landcover_100m.tif"))
+classes <- rast(file.path(data_path, "landcover/crop_tree_savanna_water.tif"))
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated_nothin.tif"))
+suitability2 <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"))
+
+crs_to <- crs(landcover)
+
+stats_wdpa <- lapply(1:nrow(wdpa), function(n) {
+    message(sprintf("Polygon No.%s", n))
+    pa <- wdpa %>% slice(n)
+    pa_reproj <- pa %>% st_transform(crs_to) %>% vect()
+    
+    lc_pa <- mask(crop(landcover, pa_reproj), pa_reproj)
+    
+    if (isTRUE(global(lc_pa, fun = "isNA") != ncell(lc_pa))) {
+        classes_pa <- classify(lc_pa, rbind(c(1, 1), c(2, 2),
+                                        c(3, 3), c(4, 3),
+                                        c(5, 4), c(8, 3)), others = NA)
+    suit_pa <- mask(crop(suitability, pa %>% vect()), pa %>% vect())
+    suit2_pa <- mask(crop(suitability2, pa %>% vect()), pa %>% vect())
+    
+    ls_metrics <- calculate_lsm(lc_pa, level = c("landscape"))
+    class_metrics <- calculate_lsm(classes_pa, level = c("class"))
+    stats_suit <- values(suit_pa) %>% na.omit()
+    stats_suit <- data.frame("mean" = mean(stats_suit, na.rm = TRUE), 
+                             "sd" = sd(stats_suit, na.rm = TRUE),
+                             "min" = min(stats_suit, na.rm = TRUE),
+                             "max" = max(stats_suit, na.rm = TRUE))
+    stats_suit_thin <- values(suit2_pa) %>% na.omit()
+    stats_suit_thin <- data.frame("mean" = mean(stats_suit_thin, na.rm = TRUE), 
+                                  "sd" = sd(stats_suit_thin, na.rm = TRUE),
+                                  "min" = min(stats_suit_thin, na.rm = TRUE),
+                                  "max" = max(stats_suit_thin, na.rm = TRUE))
+    
+    result <- list("ls_metrics" = ls_metrics,
+                   "class_metrics" = class_metrics,
+                   "stats_suit" = stats_suit,
+                   "stats_suit_thin" = stats_suit_thin,
+                   "pa" = pa)
+    } else result <- NULL
+    
+    # Return
+    save(result, 
+         file = file.path(result_path, "temp", sprintf("pa_%s.rda", n)))
+    result
+})
+
+# Collect the original result
+## Landscape level, aggregation metrics except NAs
+## Class level
+### cropland and dense trees: boundary ones
+### savanna: aggregation
+### water: boundary and area
+### suitability: all
+
+stats_wdpa_tight <- do.call(rbind, lapply(1:length(stats_wdpa), 
+                                          function(n) {
+    # message(sprintf("Polygon No.%s", n))
+    stats_pa <- stats_wdpa[[n]]
+    # landscape level
+    ls_metrics <- stats_pa$ls_metrics %>% 
+        select(metric, value) %>% 
+        pivot_wider(names_from = metric, values_from = value)
+    
+    # class level
+    class_metrics <- stats_pa$class_metrics
+    classes <- unique(class_metrics$class)
+    missing_class <- setdiff(1:4, classes)
+    if (length(missing_class) > 0) {
+        nms <- unique(class_metrics$metric)
+        class_metrics <- rbind(
+            class_metrics,
+            data.frame(
+                layer = 1,
+                level = "class",
+                class = sort(rep(missing_class, length(nms))),
+                id = NA,
+                metric = rep(nms, length(missing_class)),
+                value = 0)) %>% 
+            arrange(metric, class)}
+    
+    # Group metrics
+    class_metrics <- class_metrics %>% 
+        filter(!str_detect(metric, "enn")) %>% 
+        mutate(metric = paste(class, metric, sep = "_")) %>%
+        dplyr::select(metric, value) %>% 
+        pivot_wider(names_from = metric)
+    
+    nms <- gsub("1", "cropland", names(class_metrics))
+    nms <- gsub("2", "tree", nms)
+    nms <- gsub("3", "savanna", nms)
+    nms <- gsub("4", "water", nms)
+    names(class_metrics) <- nms
+    
+    # Suitability
+    suit <- stats_pa$stats_suit
+    
+    # Gather result, check, and return
+    result <- cbind(stats_pa$pa, suit, ls_metrics, class_metrics)
+    if (ncol(result) != 282) message(sprintf("Mising columns in polygon No.%s", n))
+    result
+}))
+
+save(stats_wdpa_tight, file = file.path(result_path, "stats_wdpa_tight.rda"))
+
+# Use table to do the analysis
+vals <- stats_wdpa_tight %>% st_drop_geometry() %>% 
+    select(-c(WDPAID, NAME, DESIG_ENG, sd, min, max))
+
+cors <- do.call(rbind, lapply(names(vals)[-1], function(col_name) {
+    val_rm_na <- data.frame(
+        'suit' = vals %>% pull(mean), 
+        "metric" = vals %>% pull(all_of(col_name))) %>% 
+        na.omit()
+    val <- cor(val_rm_na$suit, val_rm_na$metric) %>% 
+        data.frame() %>% mutate(name = col_name)
+    names(val) <- c("cor", "name")
+    val
+}))
+```
+

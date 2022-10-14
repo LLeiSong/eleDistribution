@@ -1,0 +1,580 @@
+---
+title: 'Part2: Landscape utilization modeling at patch level'
+author: "Lei Song"
+date: "7/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(sf)
+library(here)
+library(raster)
+library(terra)
+library(ggplot2)
+library(purrr)
+library(pbmcapply)
+library(dplyr)
+
+data_path <- here("data")
+rst_path <- file.path(data_path, "rasters")
+vct_path <- file.path(data_path, "vectors")
+pat_path <- file.path(data_path, "vars_patch")
+result_path <- here("results")
+walk(c(rst_path, vct_path, pat_path, result_path), function(pth) {
+    if (!dir.exists(pth)) dir.create(pth)
+})
+```
+
+## Introduction
+
+From part one, we get the prior knowledge of landscape priority at home range level. This part will focus on modeling landscape utilization at patch level. Thus, the variables used will be slightly different from part 1. In part 1, large-scale summarized variables are mainly be used, such as landscape metrics, climatic condition, long-term food resource, and density-based features. According to the multi-scale analysis in part1, we know that landscape-level landscape metrics have more impact on elephant distribution at large scale, and class-level landscape metrics have more impact at fine scale. So in part2, we should focus on class-level metrics.
+
+In this part, the used features are:
+
+- Landcover (done)
+- Some moving-window landscape metrics
+
+  - Contiguity index distribution (Savanna)
+  - Mean of patch area (Savanna)
+  - Savanna patch density
+  - Ratio of savanna/water
+
+- NDVI (wet season) and seasonality (done)
+- BIO4 (the most important climatic variable in part1) (done)
+- Moving-window surface roughness (done)
+- And distance-based features (done)
+
+Based on the normal size of elephant herd and available datasets, we selected 1km as the resolution. The used moving windows are 3(3km), 5(km), 7(km) because they are scales between 1km and 10km. An optimal scale analysis will be applied for modeling.
+
+## Occurrence of African savanna elephant
+
+This data has been prepared in part1.
+
+## Environmental variables
+### Bioclimatic variables
+
+```{r}
+library(itsdm)
+library(stars)
+cli_path <- file.path(data_path, "worldclim")
+
+sf_use_s2(FALSE)
+bry <- read_sf(file.path(data_path, "vectors/mainland_tanzania.geojson"))
+bry <- st_buffer(bry, 0.5)
+
+scale <- 0.5
+bios <- worldclim2(var = "bio", res = scale,
+                   bry = bry, path = tempdir())awa
+write_stars(bios, file.path(cli_path, sprintf("bios_%s.tif", scale)))
+```
+
+### Landcover
+
+We did not simply resample land cover map for the main land cover type in 1km. Instead, we used a area preserving method to upscale the map.
+
+```{r}
+# devtools::install_github("LLeiSong/APUpscale")
+library(APUpscale)
+
+# Read datasets
+lc <- rast(file.path(data_path, "landcover/landcover.tif"))
+lc_coarse <- upscale(lc, cellsize = 1000)
+writeRaster(lc_coarse, file.path(data_path, "landcover/landcover_1km.tif"))
+```
+
+### Landscape metrics
+
+```{r}
+source(file.path(here("scripts"), "landscape_metrics.R"))
+
+bufs <- c(3, 5, 7)
+walk(bufs, function(buf) {
+    landscape_c_metrics_mv(buf, data_path)
+})
+```
+
+### BIO4
+
+```{r}
+bio4 <- rast(file.path(cli_path, "bios_0.5.tif")) %>% subset(4)
+writeRaster(bio4, file.path(pat_path, "bio4.tif"))
+```
+
+### NDVI (wet season) and seasonality
+
+```{r}
+# Wet season
+ndvi_wet <- rast(file.path(data_path, 
+                           "NDVI/lansat8_sr_13_19_wet_NDVI_mean_100m.tif"))
+for (i in 1:10) {
+   ndvi_wet <- focal(ndvi_wet, fun = mean, na.rm = TRUE, na.policy = "only") 
+}
+
+# Mean annual SD
+ndvi_sd <- rast(file.path(data_path, 
+                           "NDVI/lansat8_sr_13_19_NDVI_mean_sd_100m.tif"))
+for (i in 1:10) {
+    ndvi_sd <- focal(ndvi_sd, fun = mean, na.rm = TRUE, na.policy = "only")
+}
+
+ndvis <- c(ndvi_wet, ndvi_sd)
+names(ndvis) <- c("ndvi_wet_season", "ndvi_seasonality")
+template <- rast(file.path(pat_path, "bio4.tif"))
+ndvis <- resample(ndvis, template)
+writeRaster(ndvis, file.path(pat_path, "ndvi.tif"))
+```
+
+### Zonal topographic features
+
+Here, we used Terrain Ruggedness Index (TRI) and vector roughness and they are calculated in GRASS GIS.
+
+```{r}
+library(rgrass7)
+
+# First resample DSM map
+template <- rast(file.path(pat_path, "bio4.tif"))
+dsm <- rast(file.path(rst_path, "dsm_tanzania.tif"))
+dsm <- resample(dsm, template, method = "bilinear")
+writeRaster(dsm, file.path(rst_path, "dsm_tanzania_1km.tif"))
+
+# Distances
+## Use GRASS GIS for speed
+## set up
+gisBase <- '/Applications/GRASS-8.2.app/Contents/Resources'
+crs_mer <- crs(rast(file.path(rst_path, "dsm_tanzania_1km.tif")), 
+               proj = T)
+initGRASS(gisBase = gisBase,
+          home = tempdir(),
+          gisDbase = tempdir(),  
+          mapset = 'PERMANENT', 
+          location = 'osm', 
+          override = TRUE)
+execGRASS("g.proj", flags = "c", 
+          proj4 = crs_mer)
+execGRASS('r.in.gdal', flags = c("o", "overwrite"),
+          input = file.path(rst_path, "dsm_tanzania_1km.tif"),
+          band = 1,
+          output = "elevation")
+execGRASS("g.region", raster = "elevation")
+
+# calculate vector roughness
+# execGRASS("g.extension", extension = "r.vector.ruggedness")
+execGRASS('r.vector.ruggedness', flags = c("overwrite"),
+          elevation = "elevation",
+          size = c(3, 5, 7),
+          output = "vrm")
+
+# save out
+execGRASS('i.group',
+          group = "vrms",
+          input = c("vrm_3", "vrm_5", "vrm_7"))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "vrms.tif"),
+          input = "vrms")
+```
+
+### Distances
+
+```{r}
+library(rgrass7)
+
+# Distances
+## Use GRASS GIS for speed
+## set up
+gisBase <- '/Applications/GRASS-8.2.app/Contents/Resources'
+crs_mer <- crs(template, proj = T)
+initGRASS(gisBase = gisBase,
+          home = tempdir(),
+          gisDbase = tempdir(),  
+          mapset = 'PERMANENT', 
+          location = 'osm', 
+          override = TRUE)
+execGRASS("g.proj", flags = "c", 
+          proj4 = crs_mer)
+execGRASS('r.in.gdal', flags = c("o", "overwrite"),
+          input = file.path(pat_path, "bio4.tif"),
+          band = 1,
+          output = "template")
+execGRASS("g.region", raster = "template")
+
+# Big roads
+big_roads <- read_sf(file.path(vct_path, "big_roads.geojson"))
+writeVECT(big_roads, 'big_roads', v.in.ogr_flags = 'overwrite')
+rm(big_roads)
+execGRASS('v.to.rast', flags = c("overwrite"),
+          parameters = list(input = 'big_roads', 
+                            output = 'big_roads',
+                            use = 'val',
+                            value = 1))
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'big_roads', 
+                            distance = 'big_roads'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_big_roads_1km.tif"),
+          input = "big_roads")
+
+# Waterbodies
+waterbodies <- read_sf(file.path(vct_path, "waterbodies.geojson"))
+writeVECT(waterbodies, 'waterbodies', v.in.ogr_flags = 'overwrite')
+rm(waterbodies)
+execGRASS('v.to.rast', flags = c("overwrite"),
+          parameters = list(input = 'waterbodies', 
+                            output = 'waterbodies',
+                            use = 'val',
+                            value = 1))
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'waterbodies', 
+                            distance = 'waterbodies'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_waterbodies_1km.tif"),
+          input = "waterbodies")
+
+# Rivers
+rivers <- read_sf(file.path(vct_path, "rivers.geojson"))
+writeVECT(rivers, 'rivers', v.in.ogr_flags = 'overwrite')
+rm(rivers)
+execGRASS('v.to.rast', flags = c("overwrite"),
+          parameters = list(input = 'rivers', 
+                            output = 'rivers',
+                            use = 'val',
+                            value = 1))
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'rivers', 
+                            distance = 'rivers'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_rivers_1km.tif"),
+          input = "rivers")
+
+# Settlement
+settlement <- read_sf(file.path(vct_path, "buildings.geojson"))
+writeVECT(settlement, 'settlement', v.in.ogr_flags = 'overwrite')
+rm(settlement)
+execGRASS('v.to.rast', flags = c("overwrite"),
+          parameters = list(input = 'settlement', 
+                            output = 'settlement',
+                            use = 'val',
+                            value = 1))
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'settlement', 
+                            distance = 'settlement'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_settlements_1km.tif"),
+          input = "settlement")
+
+# Stack them and resample
+dists_vct <- file.path(
+    pat_path, sprintf("dist_to_%s_1km.tif", 
+                      c("rivers", "settlements", "waterbodies", "big_roads")))
+dists_vct <- do.call(c, lapply(dists_vct, rast))
+
+# Cropland, do it separately because the projection is the same.
+## set up
+gisBase <- '/Applications/GRASS-8.2.app/Contents/Resources'
+fname <- tempfile(fileext = ".tif")
+lc <- rast(file.path(data_path, "landcover/landcover_1km.tif"))
+lc <- project(lc, crs(rast(file.path(pat_path, "bio4.tif"))),
+              method = "near")
+lc <- resample(lc, rast(file.path(pat_path, "bio4.tif")), 
+               method = "near", filename = fname)
+
+crs_mer <- crs(rast(file.path(pat_path, "bio4.tif")), proj = T)
+initGRASS(gisBase = gisBase,
+          home = tempdir(),
+          gisDbase = tempdir(),  
+          mapset = 'PERMANENT', 
+          location = 'osm', 
+          override = TRUE)
+execGRASS("g.proj", flags = "c", 
+          proj4 = crs_mer)
+execGRASS('r.in.gdal', flags = c("o", "overwrite"),
+          input = fname,
+          band = 1,
+          output = "template")
+execGRASS("g.region", raster = "template")
+
+cropland <- lc
+cropland[cropland != 1] <- NA
+fname_temp <- tempfile(fileext = ".tif")
+writeRaster(cropland, fname_temp)
+execGRASS('r.in.gdal', flags = c("o", "overwrite"),
+          input = fname_temp,
+          band = 1,
+          output = "cropland")
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'cropland', 
+                            distance = 'cropland'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_crop_1km.tif"),
+          input = "cropland")
+
+tree <- lc
+tree[tree != 2] <- NA
+fname_temp <- tempfile(fileext = ".tif")
+writeRaster(tree, fname_temp)
+execGRASS('r.in.gdal', flags = c("o", "overwrite"),
+          input = fname_temp,
+          band = 1,
+          output = "tree")
+execGRASS('r.grow.distance', flags = c("overwrite"),
+          parameters = list(input = 'tree', 
+                            distance = 'tree'))
+execGRASS('r.out.gdal', flags = c("m", "overwrite"),
+          output = file.path(pat_path, "dist_to_tree_1km.tif"),
+          input = "tree")
+
+# Stack all dists together
+dists <- file.path(
+    pat_path, sprintf("dist_to_%s_1km.tif", 
+                      c("tree", "crop")))
+dists <- c(do.call(c, lapply(dists, rast)), dists_vct)
+
+rm(dists_vct)
+writeRaster(dists, file.path(pat_path, "dists_1km.tif"))
+```
+
+## Modeling
+### Gather data
+
+```{r}
+source(file.path(here("scripts"), "gather_data.R"))
+
+# boundary
+bry <- read_sf(file.path(data_path, "vectors/mainland_tanzania.geojson"))
+bry <- vect(bry[, 'FID'])
+gather_data_fs(bry, pat_path)
+```
+
+### Variable analysis
+#### Univariate model analysis
+
+In this step, a bunch of univariate iForest models are built up using each continuous variable in the selected variables. Then the variables made by using different scales are compared and the optimal scale is selected for the final model.
+
+```{r}
+library(stringr)
+library(stars)
+library(pbmcapply)
+source(here("scripts/modeling.R"))
+
+# Read datasets
+vars <- read_stars(file.path(pat_path, "variables.tif")) %>% 
+    split("band")
+vars_selected <- names(vars)[str_detect(names(vars), "_[0-9]{1}")]
+vars <- vars %>% select(all_of(vars_selected))
+occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+
+# Univaraite modeling
+univariate_test <- do.call(
+    rbind, pbmclapply(names(vars), function(var_nm) {
+    univariate_model(occ, vars %>% select(var_nm)) %>% 
+        mutate(variable = var_nm)
+}, mc.cores = 6))
+
+save(univariate_test, file = file.path(pat_path, "univariate_test.rda"))
+```
+
+#### Piece together the analysis
+
+```{r}
+# Get the best scales, use roc_ratio as the metrics
+univariate_result <- univariate_test %>% 
+    mutate(scale = str_extract(variable, "[0-9]{1}"),
+           variable = str_replace(variable, "_[0-9]{1}", "")) %>%
+    select(-fold) %>% 
+    mutate(evaluation = roc_ratio + roc + tss) %>% 
+    group_by(variable, scale) %>% 
+    summarise(across(everything(), mean)) %>% 
+    select(variable, scale, evaluation, roc_ratio, roc, tss)
+
+nms <- data.frame(
+    variable = c("cropland_ed", "cropland_ratio", 
+                 "savanna_area_mn", "savanna_contig_mn",
+                 "savanna_pd", "savanna_ratio", "vrm"),
+    full_name = c("Cropland edge density", "Ratio of cropland",
+                  "Mean of patch area (Savanna)", 
+                  "Contiguity index distribution (Savanna)",
+                  "Savanna patch density", "Ratio of savanna",
+                  "Vector ruggedness measure"))
+univariate_best <- univariate_result %>% 
+    group_by(variable) %>% 
+    summarise(evaluation = max(evaluation)) %>% 
+    left_join(univariate_result, 
+              by = c("variable", "evaluation")) %>% 
+    left_join(nms, by = "variable")
+
+# Have a look
+ggplot(univariate_best) +
+    geom_point(aes(x = full_name, y = scale), color = "black", size = 3) +
+    geom_text(aes(x = full_name, y = scale, 
+                  label = sprintf("ROC[ratio]: %s", round(roc_ratio, 2))),
+              check_overlap = TRUE, vjust = -5, parse = TRUE) +
+    geom_text(aes(x = full_name, y = scale, 
+                  label = sprintf("ROC: %s", round(roc, 2))),
+              check_overlap = TRUE, vjust = -4) +
+    geom_text(aes(x = full_name, y = scale, 
+                  label = sprintf("TSS: %s", round(tss, 2))),
+              check_overlap = TRUE, vjust = -1) +
+    xlab("Variable") + ylab("Scale (km)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5, hjust=1),
+          axis.text = element_text(size = rel(1)),
+          axis.title = element_text(size = rel(1)))
+
+# Subset variable
+vars <- rast(file.path(pat_path, "variables.tif"))
+nms <- names(vars)
+nms <- c(nms[1:10], 
+         c("vrm_7", "savanna_contig_mn_3", 
+           "cropland_ed_7", "cropland_ratio_7",
+           "savanna_ratio_5", "savanna_pd_7"))
+vars_selected <- subset(vars, nms)
+
+writeRaster(vars_selected, file.path(pat_path, "variables_optimal_scale.tif"))
+```
+
+So the selected variables with optimal scale and ROC higher than 0.5 are:
+
+**Topography:**
+
+- Vector Ruggedness Measure (VRM) of 7 window size (7km) (`vrm_7`)
+
+**Landscape condition:**
+
+Class level:
+
+- Contiguity index distribution (mean) (CONTIG_MN) of savanna (3 window size) (`savanna_contig_mn_3`)
+- Edge density (ED) of cropland (7 window size) (`cropland_ed_7`)
+- Ratio of cropland (7 window size) (`cropland_ratio_7`)
+- Ratio of savanna (5 window size) (`savanna_ratio_5`)
+- Savanna patch density (7 window size) (`savanna_pd_7`)
+
+#### Variable correlation analysis
+
+```{r}
+library(corrplot)
+vars <- rast(file.path(pat_path, "variables_optimal_scale.tif"))
+vars <- data.frame(vars) %>% na.omit()
+
+vars <- vars %>%
+    select(-c(landcover))
+
+corrplot(corr = cor(
+    vars %>% select(-c(dist_to_crop, cropland_ratio_7, dist_to_tree)), 
+    method = "spearman"),
+    method = "square", type = "lower",
+    diag = FALSE, addCoef.col = "black",
+    number.cex = 0.7, tl.cex = 0.7)
+
+# Subset the variables for final model
+vars <- rast(file.path(pat_path, "variables_optimal_scale.tif"))
+bands_select <- setdiff(
+    names(vars), 
+    c('dist_to_crop', 'cropland_ratio_7', 'dist_to_tree'))
+vars <- subset(vars, bands_select)
+writeRaster(vars, file.path(pat_path, "variables_final.tif"))
+```
+
+So the final variables to use are:
+
+**Bioclimatic variables:**
+
+- BIO4 = Temperature Seasonality (standard deviation ×100)
+
+**Vegetation:**
+
+- Mean NDVI during wet season
+- NDVI Seasonality (standard deviation)
+
+**Distance-based features:**
+
+- Distance to rivers
+- Distance to settlements
+- Distance to waterbodies
+- Distance to big roads
+
+**Topography:**
+
+- Vector Ruggedness Measure (VRM) (7km)
+
+**Landscape condition:**
+
+Landscape level:
+
+- Land cover
+
+Class level:
+
+- Contiguity index distribution (mean) (CONTIG_MN) of savanna (3km)
+- Edge density (ED) of cropland (7km)
+- Ratio of savanna (5km)
+- Savanna patch density (7km)
+
+### Modeling with Isolation Forest (Bayes fusion later)
+
+This method do modeling separately at these two scales, and use Bayes fusion method to fuse the two result. The prediction at coarse scale acts as the prior probability.
+
+#### Hyper-parameter tuning
+
+- sample_size = c(0.8, 0.85, 0.9, 0.95, 0.1)
+- max_depth = seq(30, min(floor(num_sample / 2), 180), 30)
+- ndim = c(2, 3, 4)
+- scoring_metric = c("depth", "adj_depth")
+
+```{r}
+source(here("scripts/modeling.R"))
+occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+param_tuning_fs(occ, pat_path, result_path)
+```
+
+#### Modeling
+
+```{r}
+source(here("scripts/modeling.R"))
+
+# Load the best parameters
+load(file.path(result_path, "tuning_cv_fs.rda"))
+best_params <- tuning_cv %>% 
+    arrange(desc(roc_ratio), desc(roc), desc(`f-measure`), desc(tss)) %>%
+    slice(1) %>% 
+    select(sample_size, max_depth, ndim, scoring_metric)
+
+# run models
+occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+zone_to_thin <- read_sf(
+    file.path(data_path, "observations/zone_to_thin.geojson"))
+modeling_fs_thin(best_params, occ, zone_to_thin, pat_path, result_path)
+```
+
+#### Integrate two maps
+
+```{r}
+# Prediction at 1km scale
+load(file.path(result_path, "runs_fs.rda"))
+prediction <- merge(do.call(c, lapply(runs, function(run) {
+    run$prediction
+}))) %>% st_apply(c("x", "y"), mean, na.rm = TRUE)
+
+fname <- file.path(result_path, "landscape_utility_1km.tif")
+write_stars(prediction, fname)
+
+# Prediction at 1km scale made by 10km scale model
+pred_5_to_1 <- read_stars(
+    file.path(result_path, "landscape_utility_10km_to_1km.tif"))
+
+# Integrate
+prediction <- as(prediction, "Raster")
+pred_5_to_1 <- as(pred_5_to_1, "Raster")
+pred_bayes <- prediction * pred_5_to_1 / 
+    (prediction * pred_5_to_1 + (1 - prediction) * (1 - pred_5_to_1))
+
+fname <- file.path(result_path, "landscape_utility_1km_integrated_nothin.tif")
+writeRaster(pred_bayes, fname)
+```
+
+### Convert to presence-absence
+
+```{r}
+pred_pa <- convert_to_pa(pred_bayes, beta = 0.65, threshold = 0.65)
+write_stars(pred_pa$pa_map, 
+            file.path(result_path, "ele_pa.tif"), type = "UInt16")
+```

@@ -42,6 +42,39 @@ gather_data_cs <- function(bry, data_path, scale) {
     writeRaster(vars, file.path(data_path, sprintf("variables_%s.tif", scale)))
 }
 
+gather_data_fs <- function(bry, data_path) {
+    library(purrr)
+    library(terra)
+    
+    # Load datasets
+    bios <- rast(file.path(data_path, "bio4.tif"))
+    ndvis <- rast(file.path(data_path, "ndvi.tif"))
+    dists <- rast(file.path(data_path, "dists_1km.tif"))
+    names(dists) <- gsub("_1km", "", names(dists))
+    terrains <- rast(file.path(data_path, "vrms.tif"))
+    names(terrains) <- paste0("vrm_", c(3, 5, 7))
+    ls_c_metrics <- rast(
+        file.path(data_path, 
+                  sprintf("variables_1km_%sbuf.tif", c(3, 5, 7))))
+    names(ls_c_metrics) <- cross(
+        list(names(ls_c_metrics)[1:(nlyr(ls_c_metrics) %/% 3)], 
+             c(3, 5, 7))) %>% 
+        map_chr(paste, sep = "_", collapse = "_")
+    
+    # Read land cover and project
+    lc <- rast(file.path(data_path, "landcover_1km.tif"))
+    names(lc) <- "landcover"
+    lc <- project(lc, crs(bios), method = "near")
+    lc <- resample(lc, bios, method = "near")
+    
+    # Put them together, mask and save out
+    vars <- c(lc, bios, ndvis, dists, terrains, ls_c_metrics)
+    rm(lc, bios, ndvis, dists, terrains, ls_c_metrics)
+    
+    vars <- mask(vars, bry, touches = TRUE)
+    writeRaster(vars, file.path(data_path, "variables.tif"))
+}
+
 # gather data for Maxent
 gather_data_maxent <- function(census_block, occ, scale, data_path, dst_path) {
     library(purrr)
