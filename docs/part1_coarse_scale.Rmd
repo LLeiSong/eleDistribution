@@ -1,5 +1,5 @@
 ---
-title: 'Part1: Landscape priority modeling at home range level'
+title: 'Part1: Landscape priority modeling at coarse level'
 author: "Lei Song"
 date: '2022-07-12'
 output: html_document
@@ -1016,7 +1016,10 @@ walk(c(10, 5, 2.5), function(scale) {
 ```{r}
 occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
 
-walk(c(10, 5, 2.5), function(scale) {
+scales <- apply(expand.grid(c(10, 5, 2.5), c(100, 300, 500)),
+                1, paste, collapse="_")
+
+walk(scales, function(scale) {
     load(file.path(result_path, sprintf("tuning_cv_%s.rda", scale)))
     # Get the best parameters for different assessment metrics
     # Pick auc, auc_ratio, CBI, TSS and f-measure as the assessment

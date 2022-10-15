@@ -1,5 +1,5 @@
 ---
-title: 'Part2: Landscape utilization modeling at patch level'
+title: 'Part2: Landscape utilization modeling at fine scale'
 author: "Lei Song"
 date: "7/17/2022"
 output: html_document
