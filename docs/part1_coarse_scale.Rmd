@@ -123,8 +123,8 @@ range_map <- st_difference(range_map, st_union(census))
 range_map <- range_map %>% st_as_sf() %>% 
     select() %>% 
     mutate(area_sqkm = st_area(.) %>% units::set_units('km2'),
-           # density = min(census$density[census$density > 0])) %>% 
-            density = mean(census$density)) %>%
+           #density = min(census$density[census$density > 0])) %>% 
+           density = mean(census$density)) %>% 
     mutate(estimate = as.integer(ceiling(density * area_sqkm)))
 
 # Put together
@@ -1011,16 +1011,102 @@ walk(c(10, 5, 2.5), function(scale) {
 })
 ```
 
+Figure
+
+```{r}
+library(tidyverse)
+fg_path <- here("docs/figures")
+
+evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    do.call(rbind,lapply(c(0.1, 0.2, 0.3, 0.4, 0.5), function (ratio) {
+        load(file.path(result_path, 
+                       sprintf("tuning_cv_%s_%s.rda", scale, ratio)))
+        
+        tuning_cv %>% 
+            select(sample_size, max_depth, ndim, scoring_metric,
+                   cbi, auc_ratio, TSS, auc, `f-measure`) %>% 
+            mutate(ratio = ratio)
+    })) %>% mutate(scale = scale)
+})) %>% rename(CBI = cbi, `AUC (ratio)` = auc_ratio, 
+               AUC = auc, `F-measure` = `f-measure`)
+
+# Check and compare the results
+evals <- evals %>%
+    pivot_longer(cols = c(`AUC (ratio)`, TSS, AUC, `F-measure`),
+                 names_to = "metrics", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10)),
+           ratio = factor(ratio, levels = c(0.1, 0.2, 0.3, 0.4, 0.5)))
+
+ggplot(evals, 
+       aes(x = metrics, y = value, fill = ratio)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 2) +
+    scale_fill_brewer("Sampling ratio", palette = "Dark2") +
+    ylab('') +
+    xlab('Evaluation metrics') +
+    facet_wrap(~scale) +
+    theme_classic() +
+    theme(text = element_text(size = 14),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+ggsave(file.path(fg_path, "param_tuning.png"), 
+       width = 6, height = 4, dpi = 500)
+```
+
+According to the figure above, the optimal sample sizes are: 0.4 at 10 arc-minutes, 0.2 at 5 arc-minutes, and 0.3 at 2.5 arc-minutes.
+
 #### Simulation
 
 ```{r}
+# Define a function to thin the occurrences
+occ_thin <- function(occ, cells_thin_to, seed = 123) {
+    # Thin occurrence
+    occ_ints <- st_intersects(cells_thin_to, occ)
+    do.call(rbind, lapply(1:length(occ_ints), function(n) {
+        each <- occ_ints[[n]]
+        if (length(each) != 0) {
+            if (length(each) == 1) {
+                occ %>% slice(each)
+            } else {
+                set.seed(seed + n)
+                ids <- sample(each, size = 1)
+                occ %>% slice(ids)
+            }
+        }
+    }))
+}
+
+# Read variables
 occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+scale <- 10
+vars <- stack(
+    file.path(hr_path, sprintf("variables_final_%s.tif", scale)))
 
-scales <- apply(expand.grid(c(10, 5, 2.5), c(100, 300, 500)),
-                1, paste, collapse="_")
+# Make a non-NA mask
+msk <- lapply(1:nlayers(vars), function(n) !is.na(vars[[n]]))
+msk <- sum(stack(msk)) == nlayers(vars)
+msk[msk == 0] <- NA
+cells_thin_to <- vars[[1]]
+values(cells_thin_to) <- 1:ncell(cells_thin_to)
+cells_thin_to <- cells_thin_to * msk
+cells_thin_to <- rasterToPolygons(cells_thin_to) %>% st_as_sf()
+rm(msk)
 
-walk(scales, function(scale) {
-    load(file.path(result_path, sprintf("tuning_cv_%s.rda", scale)))
+# Refine the occurrence from fine to coarse scale
+occ_thin_10fds <- lapply(1:10, function(n){
+    occ_thin(occ, cells_thin_to, seed = 123 * n)
+})
+
+walk(c(10, 5, 2.5), function(scale) {
+    ratio_sample <- switch(as.character(scale), 
+                           '10' = 0.4, '5' = 0.2, '2.5' = 0.3)
+    fname <- file.path(result_path, sprintf("tuning_cv_%s_%s.rda", 
+                                        scale, ratio_sample))
+    message(fname); load(fname)
     # Get the best parameters for different assessment metrics
     # Pick auc, auc_ratio, CBI, TSS and f-measure as the assessment
     # to pick the best params
@@ -1030,7 +1116,9 @@ walk(scales, function(scale) {
         select(sample_size, max_depth, ndim, scoring_metric)
     
     # run models
-    modeling_cs(best_params, census_block, occ, scale, hr_path, result_path)
+    modeling_cs(best_params, census_block, occ_thin_10fds, 
+                scale, ratio_sample, hr_path, result_path,
+                seed = 123 + scale * 10)
 })
 ```
 
@@ -1048,57 +1136,94 @@ Both train and test evaluation are important and should be considered in this st
 library(tidyverse)
 fg_path <- here("docs/figures")
 
-tabularize_evaluation <- function(eval) {
-    tibble(
-        CBI = eval$po_evaluation$boyce$cor,
-        `AUC (ratio)` = eval$po_evaluation$roc_ratio$auc_ratio,
-        TSS = eval$pb_evaluation$TSS$`Optimal TSS`,
-        AUC = eval$pb_evaluation$roc$auc,
-        `f-measure` = eval$pb_evaluation$`f-measure`)
+tabularize_evaluation <- function(eval, type = "train") {
+    if (type == "train") {
+        tibble(
+            CBI = eval$po_evaluation$boyce$cor,
+            `AUC (ratio)` = eval$po_evaluation$roc_ratio$auc_ratio,
+            TSS = eval$pb_evaluation$TSS$`Optimal TSS`,
+            AUC = eval$pb_evaluation$roc$auc,
+            Sensitivity = eval$pb_evaluation$sensitivity,
+            `f-measure` = eval$pb_evaluation$`f-measure`)
+    } else {
+        tibble(
+        Specificity = eval$pb_evaluation$specificity)
+    }
 }
 
-evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+evals_train <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
     load(file.path(result_path, sprintf("runs_%s.rda", scale)))
     
-    evals_train <- do.call(rbind, lapply(runs, function(run) {
-        tabularize_evaluation(run$eval_train)
-    })) %>% mutate(type = "train")
-    
-    evals_test <- do.call(rbind, lapply(runs, function(run) {
+    do.call(rbind, lapply(runs, function(run) {
         tabularize_evaluation(run$eval_test)
-    })) %>% mutate(type = 'test')
+    })) %>% mutate(scale = scale)
+}))
+
+evals_sensitivity <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("stt_real_same_%s.rda", scale)))
     
-    rbind(evals_train, evals_test) %>% mutate(scale = scale)
+     do.call(rbind, lapply(sensitivity_real, function(each) {
+        data.frame("Sensitivity" = each)
+    })) %>% mutate(scale = scale)
 }))
 
 # Check and compare the results
-evals <- evals %>% 
+evals_train <- evals_train %>% 
     pivot_longer(cols = c(`AUC (ratio)`, AUC, `f-measure`),
                  names_to = "metrics", values_to = "value") %>% 
-    mutate(scale = factor(scale, levels = c(2.5, 5, 10)),
-           type = factor(type, levels = c("train", "test")))
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10)))
 
-facet_names <- c("Train", "Test")
-names(facet_names) <- c("train", "test")
-ggplot(evals, 
+evals_sensitivity <- evals_sensitivity %>% 
+    pivot_longer(cols = c(Sensitivity),
+                 names_to = "metrics", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10)))
+
+g_train <- ggplot(evals_train, 
        aes(x = metrics, y = value, fill = scale)) +
     geom_boxplot(outlier.colour = "white", outlier.shape = 8,
                  outlier.size = 2) +
     scale_fill_brewer("Scale", palette = "Dark2") +
     ylab('') +
-    xlab('Evaluation metrics') +
-    facet_wrap(~type, scales = "free", 
-               labeller = labeller(type = facet_names)) +
+    xlab('') +
     theme_classic() +
-    theme(axis.text.x = element_text(angle = 0),
+    theme(text = element_text(size = 14),
+          axis.text.x = element_text(angle = 0),
           axis.text = element_text(size = rel(0.8)),
           axis.title = element_text(size = rel(1)),
           legend.text = element_text(size = rel(1)),
           legend.position = "top") +
     guides(fill = guide_legend(nrow = 1))
 
+g_eval_stt <- ggplot(evals_sensitivity, 
+                  aes(x = metrics, y = value, fill = scale)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 2) +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    ylab('') +
+    xlab('') +
+    theme_classic() +
+    theme(text = element_text(size = 14),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+library(ggpubr)
+figure <- ggarrange(g_train, g_eval_stt, 
+                    labels = c("A", "B"),
+                    widths = c(2, 1),
+                    common.legend = TRUE)
+
+# Annotate the figure by adding a common labels
+annotate_figure(figure,
+                bottom = text_grob("Evaluation metrics", 
+                                   color = "black", 
+                                   size = 14, vjust = -1))
+
 ggsave(file.path(fg_path, "eval_train_test.png"), 
-       width = 6, height = 4, dpi = 300)
+       width = 6, height = 4, dpi = 500, bg = "white")
 ```
 
 ##### Variable importance based on Shapley values
@@ -1166,14 +1291,14 @@ ggplot(var_imp,
                scales = "free_y") +
     theme_classic() +
     theme(axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8)),
+          axis.text = element_text(size = rel(0.8), color = "black"),
           axis.title = element_text(size = rel(1)),
           legend.text = element_text(size = rel(1)),
           legend.position = "top") +
     guides(fill = guide_legend(nrow = 1))
 
 ggsave(file.path(fg_path, "var_imp.png"), 
-       width = 8, height = 6, dpi = 300)
+       width = 8, height = 6, dpi = 500)
 ```
 
 ##### Variable corresponses
@@ -1657,18 +1782,20 @@ load(file.path(result_path, "runs_5.rda"))
 variables <- read_stars(
     file.path(data_path, "vars_patch", "variables_buf.tif")) %>% 
     split("band")
-names(variables) <- paste0("layer.", 1:21)
     
 # Do prediction
-prediction <- merge(do.call(c, lapply(runs, function(run) {
-        probability(run$model, variables)
-    }))) %>% st_apply(c("x", "y"), mean, na.rm = TRUE)
+predictions <- merge(do.call(c, lapply(runs, function(run) {
+        probability(run$model, variables)})))
+prediction <- st_apply(predictions, c("x", "y"), mean, na.rm = TRUE)
+prediction_sd <- st_apply(predictions, c("x", "y"), sd, na.rm = TRUE)
+prediction <- c(prediction, prediction_sd)
+names(prediction) <- c("prediction", "standard deviation")
     
 fname <- file.path(result_path, "landscape_utility_10km_to_1km.tif")
-write_stars(prediction, fname)
+write_stars(merge(prediction), fname)
 ```
 
-### Modeling with Maxent
+### Modeling with Maxent (Just an experiment)
 
 ```{r}
 # Test for Maxent

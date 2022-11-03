@@ -1,0 +1,1008 @@
+---
+title: "Figures used in manuscript and supplementary material"
+author: "Lei Song"
+date: "2022-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+
+library(sf)
+library(here)
+library(raster)
+library(terra)
+library(ggplot2)
+library(purrr)
+library(pbmcapply)
+library(dplyr)
+library(tidyverse)
+library(ggpubr)
+
+data_path <- here("data")
+rst_path <- file.path(data_path, "rasters")
+vct_path <- file.path(data_path, "vectors")
+hr_path <- file.path(data_path, "vars_home_range")
+pat_path <- file.path(data_path, "vars_patch")
+result_path <- here("results")
+fg_path <- here("docs/figures")
+```
+
+## Methodology
+### Figure 1
+
+Figure 1 is the figure of study area, datasets, etc.
+
+```{r}
+library(ggpattern)
+
+study_area <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
+expert_range_map <- read_sf(
+    file.path(data_path, "observations", "range_map.geojson")) %>% 
+    filter(range == "Known") %>% 
+    mutate(range = "Expert range map")
+census_blocks <- read_sf(
+    file.path(data_path, "observations", "census.geojson")) %>% 
+    mutate(density_bin = mltools::bin_data(round(census_blocks$density, 2), 
+                                           bins=8, binType = "quantile"))
+zone_to_thin <- read_sf(
+    file.path(data_path, "observations", "zone_to_thin.geojson")) %>% 
+    mutate(zone = "Zone to thin")
+occ <- read_sf(
+    file.path(data_path, "observations", "ele_occurrence.geojson")) %>% 
+    mutate(occ = "Occurrences")
+
+ggplot() +
+    geom_sf(data = study_area, fill = "transparent", color = "black") +
+    geom_sf(data = zone_to_thin, aes(fill = "Zone to thin"), alpha = 0.5,
+            show.legend = "polygon") +
+    scale_fill_manual(NULL, values = "lightblue",
+                      breaks = 'Zone to thin',
+                      guide = guide_legend(
+                          override.aes = list(linetype = "blank", 
+                                              shape = NA))) +
+    ggnewscale::new_scale_fill() +
+    geom_sf_pattern(data = expert_range_map, 
+                    pattern = "magick",
+                    aes(pattern_type = 'Expert range map'),
+                    pattern_fill = 'black',
+                    pattern_scale = 2,
+                    pattern_aspect_ratio = 1,
+                    pattern_density = 0.1,
+                    color = "black", fill = "lightgrey") +
+    scale_pattern_type_manual(NULL, values = "left45",
+                              breaks = "Expert range map",
+                              guide = guide_legend(
+                                  override.aes = list(shape = NA))) +
+    ggnewscale::new_scale_fill() +
+    ggnewscale::new_scale_color() +
+    geom_sf(data = census_blocks, aes(fill = density_bin), 
+            color = "black", size = 0.3) +
+    scale_fill_brewer("Population density\n(Census blocks)", 
+                      palette = "YlOrRd", direction = 1,
+                      guide = guide_legend(
+                          override.aes = list(linetype = "blank", 
+                                              shape = NA))) +
+    ggnewscale::new_scale_fill() +
+    ggnewscale::new_scale_color() +
+    geom_sf(data = occ, aes(size = occ), color = "white", fill = "blue",
+            pch = 21, show.legend = "point") +
+    scale_size_manual(NULL, values = 1.2, 
+                      guide = guide_legend(
+                          override.aes = list(linetype = "blank"))) +
+    theme_bw() +
+    theme(text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          plot.margin = unit(rep(0.1, 4), "cm"))
+
+ggsave(file.path(fg_path, "figure1_study_area.png"), 
+       width = 5, height = 3.8, dpi = 500, bg = "white")
+```
+
+## Results
+### Figure 3
+
+```{r}
+study_area <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
+
+suit_fine_scale <- read_stars(
+    file.path(result_path, "landscape_utility_1km.tif")) %>% 
+    split("band") %>% select("prediction")
+
+suit_coarse_scale <- read_stars(
+    file.path(result_path, "landscape_utility_10km_to_1km.tif")) %>% 
+    split("band") %>% select("prediction")
+
+suit_integrated <- read_stars(
+    file.path(result_path, "landscape_utility_1km_integrated.tif")) %>% 
+    split("band") %>% select("prediction")
+
+suits <- c(suit_coarse_scale, suit_fine_scale, suit_integrated)
+names(suits) <- c("Coarse", "Fine", "Integrated")
+
+g1 <- ggplot() +
+    geom_stars(data = suits %>% select("Coarse")) +
+    scale_fill_viridis_c("Suitability\n(0-1)",
+        option = "D", na.value = "transparent") +
+    geom_sf(data = study_area, fill = "transparent", color = 'grey') +
+    coord_sf() +
+    theme_transparent() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.key.height = unit(0.3,"cm"),
+          legend.text = element_text(size = 10),
+          legend.margin = margin(0,0,0,0),
+          legend.box.spacing = unit(0, "pt"),
+          strip.text.x = element_text(size = 12, face = "bold"),
+          plot.margin = unit(rep(-0.5, 4), "cm"))
+g2 <- ggplot() +
+    geom_stars(data = suits %>% select("Fine")) +
+    scale_fill_viridis_c("Suitability\n(0-1)",
+                         option = "D", na.value = "transparent") +
+    geom_sf(data = study_area, fill = "transparent", color = 'grey') +
+    coord_sf() +
+    theme_transparent() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.key.height = unit(0.3,"cm"),
+          legend.text = element_text(size = 10),
+          legend.margin = margin(0,0,0,0),
+          legend.box.spacing = unit(-0.1, "pt"),
+          strip.text.x = element_text(size = 12, face = "bold"),
+          plot.margin = unit(rep(-0.5, 4), "cm"))
+g3 <- ggplot() +
+    geom_stars(data = suits %>% select("Integrated")) +
+    scale_fill_viridis_c("Suitability\n(0-1)",
+                         option = "D", na.value = "transparent") +
+    geom_sf(data = study_area, fill = "transparent", color = 'grey') +
+    coord_sf() +
+    theme_transparent() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.key.height = unit(0.3,"cm"),
+          legend.text = element_text(size = 10),
+          legend.margin = margin(0,0,0,0),
+          legend.box.spacing = unit(0, "pt"),
+          strip.text.x = element_text(size = 12, face = "bold"),
+          plot.margin = unit(rep(-0.5, 4), "cm"))
+
+ggarrange(g1, g2, g3, ncol = 1, nrow = 3, labels = c("A", 'B', 'C'),
+          font.label = list(size = 12, color = "black", face = "bold"),
+          common.legend = TRUE, legend = "bottom")
+
+ggsave(file.path(fg_path, "figure3_suit_maps.png"), 
+       width = 3, height = 8, dpi = 500, bg = "white")
+```
+
+### Statistics
+
+```{r}
+evals_5scale <- evals_train %>% filter(scale == 5) %>% 
+    select(CBI, `AUC (ratio)`, TSS, AUC, `f-measure`)
+
+ci <- function(v, conf_level = 0.95) {
+    n <- length(v)
+    se <- sd(v) / sqrt(n)
+    qt(1 - ((1 - conf_level) / 2), n - 1) * se
+}
+
+evals_5scale <- evals_5scale %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+```{r}
+load(file.path(result_path, "runs_fs.rda"))
+    
+eval_fs <- do.call(rbind, lapply(runs, function(run) {
+    tabularize_evaluation(run$eval_test)}))
+rm(runs)
+
+evals_fs <- eval_fs %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+```{r}
+load(file.path(result_path, "eval_fine_integrated.rda"))
+eval_fine_integrated <- do.call(
+    rbind, lapply(eval_fine_integrated, function(eval) {
+    tabularize_evaluation(eval)}))
+
+eval_fine_integrated <- eval_fine_integrated %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+## Discussion
+### Figure 4
+
+```{r}
+evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    do.call(rbind,lapply(c(0.1, 0.2, 0.3, 0.4, 0.5), function (ratio) {
+        load(file.path(result_path, 
+                       sprintf("tuning_cv_%s_%s.rda", scale, ratio)))
+        
+        tuning_cv %>% 
+            select(sample_size, max_depth, ndim, scoring_metric,
+                   cbi, auc_ratio, TSS, auc, `f-measure`) %>% 
+            mutate(ratio = ratio)
+    })) %>% mutate(scale = scale)
+})) %>% rename(CBI = cbi, `AUC (ratio)` = auc_ratio, 
+               AUC = auc, `F-measure` = `f-measure`)
+
+# Check and compare the results
+evals <- evals %>%
+    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
+                 names_to = "metrics", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10)),
+           ratio = factor(ratio, levels = c(0.1, 0.2, 0.3, 0.4, 0.5))) %>% 
+    select(ratio, scale, metrics, value)
+
+facet_names <- c("2.5 minutes", "5 minutes", "10 minutes")
+names(facet_names) <- c("2.5", "5", "10")
+ggplot(evals, 
+       aes(x = ratio, y = value, fill = metrics, color = metrics)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 1, width = 0.5,
+                 position = position_dodge(width = 0.9)) +
+    stat_summary(
+        fun = median,
+        geom = 'line',
+        size = 0.6, 
+        aes(group = metrics, colour = metrics),
+        position = position_dodge(width = 0.9)) +
+    scale_fill_brewer("Evaluation metrics", palette = "Dark2",
+                      labels = c("AUC",
+                                  expression(paste(AUC[ratio])),
+                                  "F-measure")) +
+    scale_color_brewer("Evaluation metrics", palette = "Dark2",
+                       labels = c("AUC",
+                                  expression(paste(AUC[ratio])),
+                                  "F-measure")) +
+    stat_summary(
+        fun = median,
+        geom = 'point',
+        color = "black",
+        shape = "-",
+        size = 5, 
+        aes(group = metrics),
+        position = position_dodge(width = 0.9),
+        show.legend = FALSE) +
+    facet_wrap(~scale, scales = "free_y", 
+               labeller = labeller(scale = facet_names)) +
+    ylab('') +
+    xlab('Sampling ratio of pseudo occurrences') +
+    theme_pubclean() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top",
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure4_optimal_pseudo_sample_size.png"), 
+       width = 6, height = 3, dpi = 500)
+```
+
+### Figure 5
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+
+tabularize_evaluation <- function(eval, type = "train") {
+    if (type == "train") {
+        tibble(
+            CBI = eval$po_evaluation$boyce$cor,
+            `AUC (ratio)` = eval$po_evaluation$roc_ratio$auc_ratio,
+            TSS = eval$pb_evaluation$TSS$`Optimal TSS`,
+            AUC = eval$pb_evaluation$roc$auc,
+            Sensitivity = eval$pb_evaluation$sensitivity,
+            `F-measure` = eval$pb_evaluation$`f-measure`)
+    } else {
+        tibble(
+        Specificity = eval$pb_evaluation$specificity)
+    }
+}
+
+evals_train <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(runs, function(run) {
+        tabularize_evaluation(run$eval_test)
+    })) %>% mutate(scale = scale)
+}))
+
+evals_sensitivity <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("stt_real_same_%s.rda", scale)))
+    
+     do.call(rbind, lapply(sensitivity_real, function(each) {
+        data.frame("Sensitivity" = each)
+    })) %>% mutate(scale = scale)
+}))
+
+# Check and compare the results
+evals_train <- evals_train %>% 
+    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
+                 names_to = "metrics", values_to = "value") %>% 
+    select(scale, metrics, value) %>% 
+    mutate(scale = factor(
+        scale, levels = c(2.5, 5, 10),
+        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
+
+evals_sensitivity <- evals_sensitivity %>% 
+    pivot_longer(cols = c(Sensitivity),
+                 names_to = "metrics", values_to = "value") %>% 
+    select(scale, metrics, value) %>% 
+    mutate(scale = factor(
+        scale, levels = c(2.5, 5, 10),
+        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
+
+g_train <- ggplot(evals_train, 
+       aes(x = metrics, y = value, fill = scale)) +
+    geom_boxplot(outlier.colour = "black", outlier.alpha = 0,
+                 outlier.size = 1) +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    scale_x_discrete(limits = c("AUC", "AUC (ratio)", "F-measure"),
+                     labels = c("AUC", expression("AUC"[ratio]), "F-measure")) +
+    ylab('') +
+    xlab('') +
+    theme_classic() +
+    theme(text = element_text(size = 10),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+g_eval_stt <- ggplot(evals_sensitivity, 
+                  aes(x = metrics, y = value, fill = scale)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 2) +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    ylab('') +
+    xlab('') +
+    theme_classic() +
+    theme(text = element_text(size = 10),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+figure <- ggarrange(g_train, g_eval_stt, 
+                    labels = c("A", "B"),
+                    font.label = list(size = 12, color = "black", 
+                                      face = "bold"),
+                    widths = c(2, 1),
+                    common.legend = TRUE)
+
+# Annotate the figure by adding a common labels
+annotate_figure(figure,
+                bottom = text_grob("Evaluation metrics", 
+                                   color = "black", 
+                                   size = 10, vjust = -1))
+
+ggsave(file.path(fg_path, "figure5_eval_coarse_scales.png"), 
+       width = 4, height = 3, dpi = 500, bg = "white")
+```
+
+### Figure 6
+
+```{r}
+library(tidytext)
+
+# Fix a name lost bug here
+nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)), 
+         "NDVI (dry season)", "NDVI (wet season)", "NDVI seasonality",
+         "Road density", "River density", "Settlement density",
+         "Surface roughness", "Patch density", "Patch richness density",
+         "Shannon's diversity index", "Cropland edge density", 
+         "Tree edge density", "Mean of Contiguity index (Savanna)", 
+         "Savanna patch density", "Ratio of savanna", "Ratio of waterbodies")
+
+abs_mean <- function(v) mean(abs(v))
+var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(runs, function(run) {
+        shap_train <- run$variable_analysis$SHAP$train %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_train) <- nms
+        shap_test <- run$variable_analysis$SHAP$test %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_test) <- nms
+        rbind(as_tibble(shap_train) %>% mutate(type = "train"),
+        as_tibble(shap_test) %>% mutate(type = "test"))
+    })) %>% mutate(scale = scale)
+}))
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(cols = rev(names(var_imp))[-c(1, 2)],
+                 names_to = "variable", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10))) %>% 
+    mutate(type = factor(type, levels = c("train", "test")))
+var_imp <- var_imp %>% filter(type == "test") %>% 
+    group_by(type, scale, variable) %>% 
+    summarise(value = mean(value)) %>% ungroup()
+var_imp_overall <- var_imp %>% group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(scale = "overall") %>% 
+    mutate(value = value * 1000) %>% 
+    arrange(value)
+var_imp_overall <- var_imp_overall %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+var_imp <- var_imp %>% group_by(scale, variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(scale = factor(
+        scale, levels = c("2.5", "5", "10"),
+        labels = c("2.5 minutes", 
+                   "5 minutes", "10 minutes"))) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(data = var_imp_overall, aes(fill = "Overall"),
+             stat = "identity", color = "transparent",
+             position="identity") +
+    geom_point(aes(color = scale), shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.01, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.05, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.09, color = scale), 
+               shape = "|", size = 4) +
+    scale_fill_manual(NULL, values = "black",
+                      breaks = 'Overall') +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure6_var_imp_coarse.png"),
+       width = 5, height = 4, dpi = 500)
+```
+
+### Figure 7
+
+```{r}
+library(ggpubr)
+
+var_rsp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(1:length(runs), function(n) {
+        run <- runs[[n]]
+        shaps <- run$shap_dependences$dependences_cont
+        names(shaps) <- nms
+        do.call(rbind, lapply(nms, function(nm) {
+            shaps[[nm]] %>% mutate(variable = nm)
+        })) %>% mutate(run = n)
+    })) %>% mutate(scale = scale)
+}))
+
+# Calculate the density
+for( var in c("Road density", "River density", "Settlement density")){
+    for (sl in c(2.5, 5, 10)) {
+        var_rsp <- var_rsp %>% 
+                 mutate(x = ifelse(variable == var & scale == sl, 
+                                   x / sl, x))}}
+
+## Reformat the table
+var_rsp <- var_rsp %>% 
+    mutate(scale = factor(
+        scale, levels = c(2.5, 5, 10),
+        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
+
+## Plot (a template)
+set.seed(123)
+g_sd <- ggplot(var_rsp %>% 
+           filter(variable == "Settlement density") %>% 
+               group_by(scale) %>% 
+               sample_n(size = 7000) %>%  
+               ungroup()) +
+    geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+               color = "white", size = 0.8, stroke = 0.2) +
+    geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                se = TRUE, level = 0.95, size = 0.7,
+                method = 'gam', formula = y ~ s(x, bs = "cs", k = 4)) +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_x_log10() +
+    ylab('Shapley value') +
+    xlab(expression(Settlement~density~(log[10]))) +
+    theme_classic() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+set.seed(123)
+g_bio4 <- ggplot(var_rsp %>% 
+           filter(variable == "BIO4") %>% 
+           group_by(scale) %>% 
+               sample_n(size = 7000) %>% 
+               ungroup()) +
+    geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+               color = "white", size = 0.8, stroke = 0.2) +
+    geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                se = TRUE, level = 0.95, method = 'gam', size = 0.7,
+                formula = y ~ s(x, bs = "cs", k = 5)) +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    ylab('Shapley value') +
+    xlab("BIO4") +
+    theme_classic() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+set.seed(123)
+g_sdi <- ggplot(var_rsp %>% 
+    filter(variable == "Shannon's diversity index") %>% 
+    group_by(scale) %>% 
+    sample_n(size = 7000) %>% 
+    ungroup()) +
+    geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+               color = "white", size = 0.8, stroke = 0.2) +
+    geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                se = TRUE, level = 0.95, method = 'gam', size = 0.7,
+                formula = y ~ s(x, bs = "cs", k = 4)) +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    ylim(c(-0.08, 0.02)) +
+    ylab('Shapley value') +
+    xlab("Shannon's diversity index") +
+    theme_classic() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 1))
+
+ggarrange(g_bio4, g_sd, g_sdi, ncol = 3,
+          labels = c("A", "B", "C"),
+          font.label = list(size = 12, color = "black", face = "bold"),
+          common.legend = TRUE)
+
+ggsave(file.path(fg_path, "figure7_variable_response.png"), 
+       width = 6.5, height = 3, dpi = 500, bg = "white")
+```
+
+### Supplementary Figure S1-S3: Response curve of all variables at coarse scale
+
+```{r}
+# Types
+type_a <- c(nms[1:8], "Cropland edge density", 
+            "Patch density", "Ratio of waterbodies", 
+            "Savanna patch density", "Tree edge density")
+type_b <- c("River density", "Road density", "Settlement density",
+            "Mean of Contiguity index (Savanna)")
+type_c <- c("Shannon's diversity index", "Surface roughness",
+            "Patch richness density", "Ratio of savanna")
+
+# x value transition
+group_orig <- c(nms[1:8], "Mean of Contiguity index (Savanna)",
+                "Shannon's diversity index", "Ratio of savanna")
+group_log <- c("Cropland edge density", 
+               "Patch density", "Ratio of waterbodies", 
+               "Savanna patch density", "Tree edge density",
+               "River density", "Road density", 
+               "Settlement density", "Surface roughness", 
+               "Patch richness density")
+
+## Plot lists
+fg_orig_list <- lapply(group_orig, function(nm) {
+    set.seed(123)
+    
+    if (nm == "Mean of Contiguity index (Savanna)") {
+        data <- var_rsp %>% 
+            filter(variable == nm) %>% 
+            group_by(scale) %>% 
+            sample_n(size = 7000) %>% 
+            ungroup()
+        ggplot(data) +
+            geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(data = data %>% filter(x > 0 & x < 0.95),
+                        aes(x = x, y = y, color = scale, fill = scale),
+                        se = TRUE, level = 0.95, method = 'gam', size = 0.7,
+                        formula = y ~ s(x, bs = "cs", k = 4)) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            ylim(c(-0.08, 0.02)) +
+            ylab('Shapley value') +
+            xlab(expression(CONTIG[NM]~(savanna))) +
+            theme_classic() +
+            theme(text = element_text(size = 10, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    } else if (nm == "Ratio of savanna") {
+        data <- var_rsp %>% 
+            filter(variable == nm) %>% 
+            group_by(scale) %>% 
+            sample_n(size = 7000) %>% 
+            ungroup()
+        ggplot(data) +
+            geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(data = data %>% filter(x < 0.99),
+                        aes(x = x, y = y, color = scale, fill = scale),
+                        se = TRUE, level = 0.95, size = 0.8,
+                        method = 'gam', formula = y ~ s(x, bs = "cs", k = 5)) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            # scale_x_log10() +
+            ylab('Shapley value') +
+            xlab(nm) +
+            theme_classic() +
+            theme(text = element_text(size = 10, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    } else {
+        ggplot(var_rsp %>% 
+                   filter(variable == nm) %>% 
+                   group_by(scale) %>% 
+                   sample_n(size = 7000) %>%  
+                   ungroup()) +
+            geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                        se = TRUE, level = 0.95, size = 0.8,
+                        method = 'gam', formula = y ~ s(x, bs = "cs", k = 6)) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            # scale_x_log10() +
+            ylab('Shapley value') +
+            xlab(nm) +
+            theme_classic() +
+            theme(text = element_text(size = 10, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    }
+})
+
+names(fg_orig_list) <- group_orig
+
+fg_log_list <- lapply(group_log, function(nm) {
+    set.seed(123)
+    
+    nm_label <- parse(text = paste0(gsub(" ", "~", nm), "~''^'L'"))
+    if (nm == "Patch richness density") {
+        data <- var_rsp %>% 
+            filter(variable == nm) %>% 
+            group_by(scale) %>% 
+            sample_n(size = 7000) %>%  
+            ungroup()
+        ggplot(data) +
+            geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                        se = TRUE, level = 0.95, size = 0.8) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            scale_x_log10() +
+            ylab('Shapley value') +
+            xlab(nm_label) +
+            theme_classic() +
+            theme(text = element_text(size = 10, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    } else {
+        ggplot(var_rsp %>% 
+                   filter(variable == nm) %>% 
+                   group_by(scale) %>% 
+                   sample_n(size = 7000) %>%  
+                   ungroup()) +
+            geom_point(aes(x = x, y = y, fill = scale), pch = 21,
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
+                        se = TRUE, level = 0.95, size = 0.8,
+                        method = 'gam', formula = y ~ s(x, bs = "cs", k = 5)) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            scale_x_log10() +
+            ylab('Shapley value') +
+            xlab(nm_label) +
+            theme_classic() +
+            theme(text = element_text(size = 10, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    }
+})
+names(fg_log_list) <- group_log
+
+fg_list <- c(fg_orig_list, fg_log_list)
+
+id_type_a <- which(names(fg_list) %in% type_a)
+id_type_b <- which(names(fg_list) %in% type_b)
+id_type_c <- which(names(fg_list) %in% type_c)
+fg_type_a <- fg_list[id_type_a]
+fg_type_b <- fg_list[id_type_b]
+fg_type_c <- fg_list[id_type_c]
+
+ggarrange(plotlist = fg_type_a, 
+          ncol = 3, nrow = 5,
+          common.legend = TRUE)
+
+ggsave(file.path(fg_path, "sup_variable_response_a.png"), 
+       width = 6.5, height = 8.5, dpi = 500, bg = "white")
+
+ggarrange(plotlist = fg_type_b, 
+          ncol = 2, nrow = 2,
+          common.legend = TRUE)
+
+ggsave(file.path(fg_path, "sup_variable_response_b.png"), 
+       width = 4.3, height = 4, dpi = 500, bg = "white")
+
+ggarrange(plotlist = fg_type_c, 
+          ncol = 2, nrow = 2,
+          common.legend = TRUE)
+
+ggsave(file.path(fg_path, "sup_variable_response_c.png"), 
+       width = 4.3, height = 4, dpi = 500, bg = "white")
+```
+
+### Figure 8
+
+```{r}
+load(file.path(result_path, "univariate_test.rda"))
+
+# Get the best scales, use roc_ratio as the metrics
+univariate_result <- univariate_test %>% 
+    mutate(scale = str_extract(variable, "[0-9]{1}"),
+           variable = str_replace(variable, "_[0-9]{1}", "")) %>%
+    select(-fold) %>% 
+    mutate(evaluation = (auc_ratio + auc) / 2) %>% 
+    group_by(variable, scale) %>% 
+    summarise(across(everything(), mean)) %>% 
+    select(variable, scale, evaluation, auc_ratio, auc)
+
+nms <- data.frame(
+    variable = c("cropland_ed", "cropland_ratio", 
+                 "savanna_area_mn", "savanna_contig_mn",
+                 "savanna_pd", "savanna_ratio", "vrm"),
+    full_name = c("Cropland edge density", "Ratio of cropland",
+                  "Mean of patch area (Savanna)", 
+                  "Mean of Contiguity index (Savanna)",
+                  "Savanna patch density", "Ratio of savanna",
+                  "Vector ruggedness measure"))
+
+univariate_result <- univariate_result %>% 
+    left_join(nms, by = "variable")
+
+univariate_best <- univariate_result %>% 
+    group_by(variable) %>% 
+    summarise(evaluation = max(evaluation)) %>% 
+    left_join(univariate_result, 
+              by = c("variable", "evaluation"))
+
+# Have a look
+ggplot(univariate_best) +
+    geom_point(aes(x = full_name, y = scale), color = "black", size = 3) +
+    geom_text(aes(x = full_name, y = scale, 
+                  label = sprintf("AUC[ratio]: %s", round(auc_ratio, 2))),
+              check_overlap = TRUE, vjust = -5, parse = TRUE) +
+    geom_text(aes(x = full_name, y = scale, 
+                  label = sprintf("AUC: %s", round(auc, 2))),
+              check_overlap = TRUE, vjust = -4) +
+    xlab("Variable") + ylab("Scale (km)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust=0.5, hjust=1),
+          axis.text = element_text(size = rel(1)),
+          axis.title = element_text(size = rel(1)),
+          text = element_text(size = 10))
+
+ggsave(file.path(fg_path, "univariate_models.png"), 
+       width = 8, height = 8, dpi = 500, bg = "white")
+```
+
+### Figure 9
+
+```{r}
+# Define names
+nms <- c("BIO4", "NDVI seasonality",
+         "Distance to settlements", "Distance to waterbodies",
+         "Vector ruggedness measure (3km)", 
+         "Mean of Contiguity index (Savanna, 3km)", 
+         "Cropland edge density (7km)", "Ratio of savanna (7km)",
+         "Savanna patch density (3km)")
+
+abs_mean <- function(v) mean(abs(v))
+load(file.path(result_path, "runs_fs.rda"))
+var_imp <- do.call(rbind, lapply(runs, function(run) {
+    shap_test <- run$variable_analysis$SHAP$test %>% 
+        summarise(across(all_of(names(.)), abs_mean))
+    names(shap_test) <- nms
+    shap_test
+})); rm(runs)
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(
+        cols = names(var_imp),
+        names_to = "variable", values_to = "value")
+var_imp <- var_imp %>% 
+    group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    ungroup() %>% arrange(value)
+var_imp <- var_imp %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(fill = "black",
+             stat = "identity", color = "transparent",
+             position="identity") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure8_var_imp_fine.png"), 
+       width = 5, height = 2, dpi = 500)
+```
+
+### Supplementary Figure S4: Response curve of all variables at fine scale
+
+```{r}
+# Define names
+nms <- c("BIO4", "NDVI seasonality",
+         "Distance to settlements", "Distance to waterbodies",
+         "VRM (3km)", 
+         "Mean of Contiguity index (Savanna, 3km)", 
+         "ED of Cropland (7km)", "Ratio of savanna (7km)",
+         "PD of Savanna (3km)")
+
+load(file.path(result_path, "runs_fs.rda"))
+var_rsp <- do.call(rbind, lapply(1:length(runs), function(n) {
+        run <- runs[[n]]
+        shaps <- run$shap_dependences$dependences_cont
+        names(shaps) <- nms
+        do.call(rbind, lapply(nms, function(nm) {
+            shaps[[nm]] %>% mutate(variable = nm)
+        })) %>% mutate(run = n)
+    }))
+
+fg_list <- lapply(nms, function(nm) {
+    set.seed(123)
+    
+    if (nm %in% c("ED of Cropland (7km)",
+                  "PD of Savanna (3km)",
+                  "VRM (3km)")) {
+        if (nm == "ED of Cropland (7km)"){
+            nm_label <- expression(ED~of~Cropland~"(7km)"~""^"L")
+        } else if (nm == "PD of Savanna (3km)") {
+            nm_label <- expression(PD~of~Savanna~"(3km)"~""^"L")
+        } else {
+            nm_label <- expression(VRM~"(3km)"~""^"L")
+        }
+        ggplot(var_rsp %>% filter(variable == nm)) +
+            geom_point(aes(x = x, y = y), pch = 21, fill = "black",
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(aes(x = x, y = y),
+                        se = TRUE, level = 0.95, size = 0.8,
+                        method = 'gam', formula = y ~ s(x, bs = "cs", k = 4)) +
+            scale_color_brewer("Scale", palette = "Dark2") +
+            scale_fill_brewer("Scale", palette = "Dark2") +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            scale_x_log10() +
+            ylab('Shapley value') +
+            xlab(nm_label) +
+            theme_classic() +
+            theme(text = element_text(size = 9, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    } else if (nm =="Mean of Contiguity index (Savanna, 3km)") {
+            nm_label <- expression(CONTIG[NM]~of~Savanna~"(3km)")
+            data <- var_rsp %>% filter(variable == nm)
+            ggplot(data) +
+                geom_point(aes(x = x, y = y), pch = 21, fill = "black",
+                           color = "white", size = 0.8, stroke = 0.2) +
+                geom_smooth(data = data %>% filter(x < 0.99 & x > 0.01),
+                            aes(x = x, y = y),
+                            se = TRUE, level = 0.95, size = 0.8,
+                            method = 'gam', formula = y ~ s(x, bs = "cs", k = 6)) +
+                geom_hline(yintercept = 0, linetype = "dashed") +
+                ylab('Shapley value') +
+                xlab(nm_label) +
+                theme_classic() +
+                theme(text = element_text(size = 9, color = "black"),
+                      axis.text.x = element_text(angle = 0),
+                      axis.text = element_text(size = rel(0.8)),
+                      axis.title = element_text(size = rel(1)),
+                      legend.text = element_text(size = rel(1)),
+                      legend.position = "top") +
+                guides(fill = guide_legend(nrow = 1))
+            } else {
+        ggplot(var_rsp %>% filter(variable == nm)) +
+            geom_point(aes(x = x, y = y), pch = 21, fill = "black",
+                       color = "white", size = 0.8, stroke = 0.2) +
+            geom_smooth(aes(x = x, y = y),
+                        se = TRUE, level = 0.95, size = 0.8,
+                        method = 'gam', formula = y ~ s(x, bs = "cs", k = 6)) +
+            geom_hline(yintercept = 0, linetype = "dashed") +
+            ylab('Shapley value') +
+            xlab(nm) +
+            theme_classic() +
+            theme(text = element_text(size = 9, color = "black"),
+                  axis.text.x = element_text(angle = 0),
+                  axis.text = element_text(size = rel(0.8)),
+                  axis.title = element_text(size = rel(1)),
+                  legend.text = element_text(size = rel(1)),
+                  legend.position = "top") +
+            guides(fill = guide_legend(nrow = 1))
+    }
+})
+ggarrange(plotlist = fg_list, 
+          ncol = 3, nrow = 3,
+          common.legend = TRUE)
+
+ggsave(file.path(fg_path, "sup_variable_response_fine.png"), 
+       width = 6.5, height = 6.5, dpi = 500, bg = "white")
+```

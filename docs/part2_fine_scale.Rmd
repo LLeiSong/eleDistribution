@@ -28,11 +28,10 @@ walk(c(rst_path, vct_path, pat_path, result_path), function(pth) {
 
 ## Introduction
 
-From part one, we get the prior knowledge of landscape priority at home range level. This part will focus on modeling landscape utilization at patch level. Thus, the variables used will be slightly different from part 1. In part 1, large-scale summarized variables are mainly be used, such as landscape metrics, climatic condition, long-term food resource, and density-based features. According to the multi-scale analysis in part1, we know that landscape-level landscape metrics have more impact on elephant distribution at large scale, and class-level landscape metrics have more impact at fine scale. So in part2, we should focus on class-level metrics.
+From part one, we get the prior knowledge of landscape priority at coarse scales. This part will focus on modeling landscape utilization at fine scale (1km). Thus, the variables used will be slightly different from part 1. In part 1, large-scale summarized variables are mainly be used, such as landscape metrics, climatic condition, long-term food resource, and density-based features. According to the multi-scale analysis in part1, we know that landscape-level landscape metrics have more impact on elephant distribution at large scale, and class-level landscape metrics have more impact at fine scale. So in part2, we should focus on class-level metrics.
 
 In this part, the used features are:
 
-- Landcover (done)
 - Some moving-window landscape metrics
 
   - Contiguity index distribution (Savanna)
@@ -346,6 +345,223 @@ gather_data_fs(bry, pat_path)
 ```
 
 ### Variable analysis
+#### Thin the occurrences
+
+```{r}
+occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+
+# Resample the occurrences
+template <- raster(file.path(pat_path, "variables.tif"))
+values(template) <- NA
+occ <- rasterize(occ, template, fun = "count")
+occ <- rasterToPoints(occ, spatial = TRUE) %>% 
+        st_as_sf() %>% select()
+```
+
+#### Occurrence locations vs expert range map
+
+```{r}
+library(nngeo)
+library(terra)
+library(ggpubr)
+
+# Read datasets
+range_map <- read_sf(
+    file.path(data_path, "observations/pseudo_blocks.geojson")) %>% 
+    st_union() %>% st_remove_holes() %>% st_make_valid() %>% vect()
+vars <- rast(file.path(pat_path, "variables.tif"))
+
+# Extract values
+vars_occ <- terra::extract(vars, occ) %>% select(-ID)
+vars_range <- mask(crop(vars, range_map), range_map)
+vars_range <- values(vars_range, dataframe = TRUE, na.rm = TRUE)
+
+vars_nms <- data.frame(
+    name = names(vars_range),
+    full_name = c("BIO4", 
+                  "NDVI (wet season)", "NDVI seasonality",
+                  "Distance to trees", "Distance to farmlands",
+                  "Distance to rivers", "Distance to settlements",
+                  "Distance to waterbodies", 
+                  "Distance to primary roads/railways",
+                  "VRM (3km)", "VRM (5km)", "VRM (7km)",
+                  "ED of Cropland (3km)", 
+                  "AREA_MN of Savanna (3km)",
+                  "CONTIG_MN of Savanna (3km)", 
+                  "PD of Savanna (3km)",
+                  "Ratio of cropland (3km)",
+                  "Ratio of savanna (3km)",
+                  "ED of Cropland (5km)", 
+                  "AREA_MN of Savanna (5km)",
+                  "CONTIG_MN of Savanna (5km)", 
+                  "PD of Savanna (5km)",
+                  "Ratio of cropland (5km)",
+                  "Ratio of savanna (5km)",
+                  "ED of Cropland (7km)", 
+                  "AREA_MN of Savanna (7km)",
+                  "CONTIG_MN of Savanna (7km)", 
+                  "PD of Savanna (7km)",
+                  "Ratio of cropland (7km)",
+                  "Ratio of savanna (7km)"))
+# Compare the value distribution of each variable
+nms <- names(vars_range)[-c(4:9)]
+index_log <- c(1:3, 9, 12, 15, 18, 21, 24)
+fg_list <- lapply(1:length(nms), function(n){
+    nm_var <- nms[n]
+    values_occ <- vars_occ %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Occurrence") %>% rename(x = nm_var)
+    values_range <- vars_range %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Expert Range Map") %>% rename(x = nm_var)
+    values <- rbind(values_occ, values_range)
+    
+    # K-S distance
+    ks_result <- ks.test(values_occ$x, values_range$x)
+    
+    # Remove outliers using bin = 30 the same as ggplot default value
+    # Most of values come from expert range map, 
+    # so use both dataset together, count < 50
+    bins <- seq(min(values$x), max(values$x), 
+                by = (max(values$x) - min(values$x)) / 30)
+    nums <- table(cut(values$x, c(bins, Inf)))
+    nums <- data.frame(bin = bins,
+                       count = as.numeric(nums))
+    # Usually the tails happen to the two direction of the values
+    middle <- mean(values$x)
+    min_tail <- nums %>% filter(bin < middle & count < 100)
+    if (nrow(min_tail) > 0) {
+        min_tail <- max(min_tail$bin)
+    } else min_tail <- min(values$x)
+    max_tail <- nums %>% filter(bin > middle & count < 100)
+    if (nrow(max_tail) > 0) {
+        max_tail <- min(max_tail$bin)
+    } else max_tail <- max(values$x)
+    values <- values %>% filter(x >= min_tail & x <= max_tail)
+    
+    if (n %in% index_log) {
+        ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
+            geom_histogram(aes(fill = type), 
+                           color = "white", alpha = 0.6,
+                           position="identity") +
+            geom_density(aes(fill = type, color = type),
+                         alpha = 0.6) +
+            scale_fill_brewer("Data type", palette = "Set1") +
+            scale_color_brewer("Data type", palette = "Set1") +
+            xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
+            ylab("Density") +
+            annotate("text", x = min(values$x), y = 1, 
+                      label = sprintf("K-S Distance: %s", 
+                                      round(ks_result$statistic, 2)),
+                     hjust = 0, vjust = 1) +
+            theme_classic() +
+            theme(text = element_text(size = 11),
+                  plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+    } else {
+        ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
+            geom_histogram(aes(fill = type), 
+                           color = "white", alpha = 0.6,
+                           position="identity") +
+            geom_density(aes(fill = type, color = type),
+                         alpha = 0.6) +
+            scale_x_log10() +
+            scale_fill_brewer("Data type", palette = "Set1") +
+            scale_color_brewer("Data type", palette = "Set1") +
+            xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
+            ylab("Density") +
+            annotate("text", 
+                     x = 0, y = 1, 
+                     label = sprintf("K-S Distance: %s", 
+                                     round(ks_result$statistic, 2)),
+                     hjust = 0) +
+            theme_classic() +
+            theme(text = element_text(size = 11),
+                  plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+    }
+})
+
+ggarrange(plotlist = fg_list, ncol = 3, nrow = 8, 
+          common.legend = TRUE, legend = "bottom")
+
+fg_path <- here("docs/figures")
+ggsave(file.path(fg_path, "vars_occ_range.png"), 
+       width = 8, height = 12, dpi = 500, bg = "white")
+
+dist_fg_list <- lapply(names(vars_range)[c(4:9)], function(nm_var){
+    values_occ <- vars_occ %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Occurrence") %>% rename(x = nm_var)
+    values_range <- vars_range %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Expert Range Map") %>% rename(x = nm_var)
+    values <- rbind(values_occ, values_range)
+    
+    # K-S distance
+    ks_result <- ks.test(values_occ$x, values_range$x)
+    
+    # Remove outliers using bin = 30 the same as ggplot default value
+    # Most of values come from expert range map, 
+    # so use both dataset together, count < 50
+    bins <- seq(min(values$x), max(values$x), 
+                by = (max(values$x) - min(values$x)) / 30)
+    nums <- table(cut(values$x, c(bins, Inf)))
+    nums <- data.frame(bin = bins,
+                       count = as.numeric(nums))
+    # Usually the tails happen to the two direction of the values
+    middle <- mean(values$x)
+    min_tail <- nums %>% filter(bin < middle & count < 100)
+    if (nrow(min_tail) > 0) {
+        min_tail <- max(min_tail$bin)
+    } else min_tail <- min(values$x)
+    max_tail <- nums %>% filter(bin > middle & count < 100)
+    if (nrow(max_tail) > 0) {
+        max_tail <- min(max_tail$bin)
+    } else max_tail <- max(values$x)
+    values <- values %>% filter(x >= min_tail & x <= max_tail)
+    
+    ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
+        geom_histogram(aes(fill = type), 
+                       color = "white", alpha = 0.6,
+                       position="identity") +
+        geom_density(aes(fill = type, color = type),
+                     alpha = 0.6) +
+        scale_x_log10() +
+        scale_fill_brewer("Data type", palette = "Set1") +
+        scale_color_brewer("Data type", palette = "Set1") +
+        xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
+        ylab("Density") +
+        annotate("text", 
+                 x = 0, y = 1, 
+                 label = sprintf("K-S Distance: %s", 
+                                 round(ks_result$statistic, 2)),
+                 hjust = 0) +
+        theme_classic() +
+        theme(text = element_text(size = 11),
+              plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+
+})
+
+ggarrange(plotlist = dist_fg_list, ncol = 3, nrow = 2, 
+          common.legend = TRUE, legend = "bottom")
+
+fg_path <- here("docs/figures")
+ggsave(file.path(fg_path, "dist_vars_occ_range.png"), 
+       width = 8, height = 6, dpi = 500, bg = "white")
+
+# Get the statistics
+ks_statistics <- sapply(1:length(nms), function(n){
+    nm_var <- nms[n]
+    values_occ <- vars_occ %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Occurrence") %>% rename(x = nm_var)
+    values_range <- vars_range %>% select(all_of(nm_var)) %>% 
+        mutate(type = "Expert Range Map") %>% rename(x = nm_var)
+    values <- rbind(values_occ, values_range)
+    
+    # K-S test
+    ks_result <- ks.test(values_occ$x, values_range$x)
+    round(ks_result$statistic, 2)
+})
+nms_to_move <- nms[ks_statistics >= 0.4]
+nms_to_move <- c(nms_to_move, 
+                 "dist_to_tree", "dist_to_rivers", "dist_to_big_roads")
+```
+
 #### Univariate model analysis
 
 In this step, a bunch of univariate iForest models are built up using each continuous variable in the selected variables. Then the variables made by using different scales are compared and the optimal scale is selected for the final model.
@@ -362,18 +578,20 @@ vars <- read_stars(file.path(pat_path, "variables.tif")) %>%
 vars_selected <- names(vars)[str_detect(names(vars), "_[0-9]{1}")]
 vars <- vars %>% select(all_of(vars_selected))
 occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
+zone_to_thin <- read_sf(
+    file.path(data_path, "observations/zone_to_thin.geojson"))
 
-# Univaraite modeling
+# Univariate modeling
 univariate_test <- do.call(
     rbind, pbmclapply(names(vars), function(var_nm) {
     univariate_model(occ, vars %>% select(var_nm)) %>% 
         mutate(variable = var_nm)
 }, mc.cores = 6))
 
-save(univariate_test, file = file.path(pat_path, "univariate_test.rda"))
+save(univariate_test, file = file.path(result_path, "univariate_test.rda"))
 ```
 
-#### Piece together the analysis
+##### Piece together the analysis
 
 ```{r}
 # Get the best scales, use roc_ratio as the metrics
@@ -381,10 +599,10 @@ univariate_result <- univariate_test %>%
     mutate(scale = str_extract(variable, "[0-9]{1}"),
            variable = str_replace(variable, "_[0-9]{1}", "")) %>%
     select(-fold) %>% 
-    mutate(evaluation = roc_ratio + roc + tss) %>% 
+    mutate(evaluation = auc_ratio + auc) %>% 
     group_by(variable, scale) %>% 
     summarise(across(everything(), mean)) %>% 
-    select(variable, scale, evaluation, roc_ratio, roc, tss)
+    select(variable, scale, evaluation, auc_ratio, auc)
 
 nms <- data.frame(
     variable = c("cropland_ed", "cropland_ratio", 
@@ -395,48 +613,65 @@ nms <- data.frame(
                   "Contiguity index distribution (Savanna)",
                   "Savanna patch density", "Ratio of savanna",
                   "Vector ruggedness measure"))
+
+univariate_result <- univariate_result %>% 
+    left_join(nms, by = "variable")
+
 univariate_best <- univariate_result %>% 
     group_by(variable) %>% 
     summarise(evaluation = max(evaluation)) %>% 
     left_join(univariate_result, 
-              by = c("variable", "evaluation")) %>% 
-    left_join(nms, by = "variable")
+              by = c("variable", "evaluation"))
 
 # Have a look
 ggplot(univariate_best) +
     geom_point(aes(x = full_name, y = scale), color = "black", size = 3) +
     geom_text(aes(x = full_name, y = scale, 
-                  label = sprintf("ROC[ratio]: %s", round(roc_ratio, 2))),
+                  label = sprintf("AUC[ratio]: %s", round(auc_ratio, 2))),
               check_overlap = TRUE, vjust = -5, parse = TRUE) +
     geom_text(aes(x = full_name, y = scale, 
-                  label = sprintf("ROC: %s", round(roc, 2))),
+                  label = sprintf("AUC: %s", round(auc, 2))),
               check_overlap = TRUE, vjust = -4) +
-    geom_text(aes(x = full_name, y = scale, 
-                  label = sprintf("TSS: %s", round(tss, 2))),
-              check_overlap = TRUE, vjust = -1) +
     xlab("Variable") + ylab("Scale (km)") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, vjust=0.5, hjust=1),
           axis.text = element_text(size = rel(1)),
-          axis.title = element_text(size = rel(1)))
+          axis.title = element_text(size = rel(1)),
+          text = element_text(size = 10))
 
+ggsave(file.path(fg_path, "univariate_models.png"), 
+       width = 8, height = 8, dpi = 500, bg = "white")
+```
+
+#### Subset the variables
+
+```{r}
 # Subset variable
 vars <- rast(file.path(pat_path, "variables.tif"))
 nms <- names(vars)
-nms <- c(nms[1:10], 
-         c("vrm_7", "savanna_contig_mn_3", 
+nms_keep_univariate_test <- c(nms[1:10], 
+         c("vrm_3", "savanna_contig_mn_3", 
            "cropland_ed_7", "cropland_ratio_7",
-           "savanna_ratio_5", "savanna_pd_7"))
-vars_selected <- subset(vars, nms)
+           "savanna_ratio_7", "savanna_pd_7"))
+nms_conflict <- intersect(nms_to_move, nms_keep_univariate_test)
 
-writeRaster(vars_selected, file.path(pat_path, "variables_optimal_scale.tif"))
+# Both consider univariate test and variable distribution comparison,
+# Remove savanna_ratio variable from the final model.
+# Keep savanna_pd_3 instead of savanna_pd_7.
+nms_to_keep <- c(setdiff(nms_keep_univariate_test, nms_conflict),
+                 "savanna_pd_3")
+
+vars_selected <- subset(vars, nms_to_keep)
+
+writeRaster(vars_selected, 
+            file.path(pat_path, "variables_repre_opt_scale.tif"))
 ```
 
-So the selected variables with optimal scale and ROC higher than 0.5 are:
+So the selected variables with optimal scale and ROC higher than 0.5, and have similar distribution across occurrence coordinates and expert range map are:
 
 **Topography:**
 
-- Vector Ruggedness Measure (VRM) of 7 window size (7km) (`vrm_7`)
+- Vector Ruggedness Measure (VRM) of 3 window size (3km) (`vrm_3`)
 
 **Landscape condition:**
 
@@ -445,36 +680,32 @@ Class level:
 - Contiguity index distribution (mean) (CONTIG_MN) of savanna (3 window size) (`savanna_contig_mn_3`)
 - Edge density (ED) of cropland (7 window size) (`cropland_ed_7`)
 - Ratio of cropland (7 window size) (`cropland_ratio_7`)
-- Ratio of savanna (5 window size) (`savanna_ratio_5`)
-- Savanna patch density (7 window size) (`savanna_pd_7`)
+- Savanna patch density (3 window size) (`savanna_pd_3`)
 
 #### Variable correlation analysis
 
 ```{r}
 library(corrplot)
-vars <- rast(file.path(pat_path, "variables_optimal_scale.tif"))
+vars <- rast(file.path(pat_path, "variables_repre_opt_scale.tif"))
 vars <- data.frame(vars) %>% na.omit()
 
-vars <- vars %>%
-    select(-c(landcover))
-
 corrplot(corr = cor(
-    vars %>% select(-c(dist_to_crop, cropland_ratio_7, dist_to_tree)), 
+    vars %>% select(-c(cropland_ratio_7, dist_to_crop)), 
     method = "spearman"),
     method = "square", type = "lower",
     diag = FALSE, addCoef.col = "black",
     number.cex = 0.7, tl.cex = 0.7)
 
 # Subset the variables for final model
-vars <- rast(file.path(pat_path, "variables_optimal_scale.tif"))
+vars <- rast(file.path(pat_path, "variables_repre_opt_scale.tif"))
 bands_select <- setdiff(
     names(vars), 
-    c('dist_to_crop', 'cropland_ratio_7', 'dist_to_tree'))
+    c('dist_to_crop', 'cropland_ratio_7'))
 vars <- subset(vars, bands_select)
 writeRaster(vars, file.path(pat_path, "variables_final.tif"))
 ```
 
-So the final variables to use are:
+So after three tests, the final variables to use are:
 
 **Bioclimatic variables:**
 
@@ -482,32 +713,25 @@ So the final variables to use are:
 
 **Vegetation:**
 
-- Mean NDVI during wet season
 - NDVI Seasonality (standard deviation)
 
 **Distance-based features:**
 
-- Distance to rivers
 - Distance to settlements
 - Distance to waterbodies
-- Distance to big roads
 
 **Topography:**
 
-- Vector Ruggedness Measure (VRM) (7km)
+- Vector Ruggedness Measure (VRM) (3km)
 
 **Landscape condition:**
-
-Landscape level:
-
-- Land cover
 
 Class level:
 
 - Contiguity index distribution (mean) (CONTIG_MN) of savanna (3km)
 - Edge density (ED) of cropland (7km)
-- Ratio of savanna (5km)
-- Savanna patch density (7km)
+- Savanna patch density (3km)
+- Ratio of Savanna (7km)
 
 ### Modeling with Isolation Forest (Bayes fusion later)
 
@@ -523,7 +747,9 @@ This method do modeling separately at these two scales, and use Bayes fusion met
 ```{r}
 source(here("scripts/modeling.R"))
 occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
-param_tuning_fs(occ, pat_path, result_path)
+zone_to_thin <- read_sf(
+    file.path(data_path, "observations/zone_to_thin.geojson"))
+param_tuning_fs(occ, pat_path, result_path, zone_to_thin = zone_to_thin)
 ```
 
 #### Modeling
@@ -534,7 +760,7 @@ source(here("scripts/modeling.R"))
 # Load the best parameters
 load(file.path(result_path, "tuning_cv_fs.rda"))
 best_params <- tuning_cv %>% 
-    arrange(desc(roc_ratio), desc(roc), desc(`f-measure`), desc(tss)) %>%
+    arrange(desc(boyce_index), desc(auc_ratio), desc(auc), desc(tss)) %>%
     slice(1) %>% 
     select(sample_size, max_depth, ndim, scoring_metric)
 
@@ -542,39 +768,70 @@ best_params <- tuning_cv %>%
 occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
 zone_to_thin <- read_sf(
     file.path(data_path, "observations/zone_to_thin.geojson"))
-modeling_fs_thin(best_params, occ, zone_to_thin, pat_path, result_path)
+modeling_fs(best_params, occ, pat_path, 
+            result_path, zone_to_thin = zone_to_thin)
 ```
 
 #### Integrate two maps
 
 ```{r}
-# Prediction at 1km scale
-load(file.path(result_path, "runs_fs.rda"))
-prediction <- merge(do.call(c, lapply(runs, function(run) {
-    run$prediction
-}))) %>% st_apply(c("x", "y"), mean, na.rm = TRUE)
-
-fname <- file.path(result_path, "landscape_utility_1km.tif")
-write_stars(prediction, fname)
-
 # Prediction at 1km scale made by 10km scale model
 pred_5_to_1 <- read_stars(
-    file.path(result_path, "landscape_utility_10km_to_1km.tif"))
+    file.path(result_path, "landscape_utility_10km_to_1km.tif")) %>% 
+    split("band") %>% select("prediction")
 
-# Integrate
-prediction <- as(prediction, "Raster")
-pred_5_to_1 <- as(pred_5_to_1, "Raster")
-pred_bayes <- prediction * pred_5_to_1 / 
-    (prediction * pred_5_to_1 + (1 - prediction) * (1 - pred_5_to_1))
+# Prediction at 1km scale
+load(file.path(result_path, "runs_fs.rda"))
+predictions <- lapply(runs, function(run) {
+    prediction <- run$prediction
+    st_dimensions(prediction) <- st_dimensions(pred_5_to_1)
+    
+    # Integrated map
+    pred_integrated <- prediction * pred_5_to_1 / 
+        (prediction * pred_5_to_1 + (1 - prediction) * (1 - pred_5_to_1))
+    
+    # Evaluate the map
+    mod <- run$model
+    occ_pred <- st_extract(pred_integrated, run$pts_occ) %>% pull(prediction)
+    bg_pred <- st_extract(pred_integrated, run$pts_bg_occ) %>% pull(prediction)
+    var_pred <- na.omit(as.vector(run$prediction[[1]]))
+    
+    eval_integrated <- evaluate_po(
+        mod, occ_pred = occ_pred, 
+        bg_pred = bg_pred, var_pred = var_pred)
+    
+    list('prediction' = pred_integrated,
+         'evaluation' = eval_integrated)
+})
 
-fname <- file.path(result_path, "landscape_utility_1km_integrated_nothin.tif")
-writeRaster(pred_bayes, fname)
-```
+pred_1km <- merge(
+    do.call(c, lapply(runs, function(run) run$prediction))) %>% 
+    st_apply(c("x", "y"), mean, na.rm = TRUE)
 
-### Convert to presence-absence
+pred_1km_sd <- merge(
+    do.call(c, lapply(runs, function(run) run$prediction))) %>% 
+    st_apply(c("x", "y"), sd, na.rm = TRUE)
 
-```{r}
-pred_pa <- convert_to_pa(pred_bayes, beta = 0.65, threshold = 0.65)
-write_stars(pred_pa$pa_map, 
-            file.path(result_path, "ele_pa.tif"), type = "UInt16")
+pred_1km <- c(pred_1km, pred_1km_sd)
+names(pred_1km) <- c("prediction", "standard deviation")
+
+fname <- file.path(result_path, "landscape_utility_1km.tif")
+write_stars(merge(pred_1km), fname)
+
+pred_integrated <- merge(
+    do.call(c, lapply(predictions, function(pred) pred$prediction))) %>% 
+    st_apply(c("x", "y"), mean, na.rm = TRUE)
+
+pred_integrated_sd <- merge(
+    do.call(c, lapply(predictions, function(pred) pred$prediction))) %>% 
+    st_apply(c("x", "y"), sd, na.rm = TRUE)
+pred_integrated <- c(pred_integrated, pred_integrated_sd)
+names(pred_integrated) <- c("prediction", "standard deviation")
+
+fname <- file.path(result_path, "landscape_utility_1km_integrated.tif")
+write_stars(merge(pred_integrated), fname)
+
+eval_fine_integrated <- lapply(predictions, function(pred) pred$evaluation)
+save(eval_fine_integrated, 
+     file = file.path(result_path, "eval_fine_integrated.rda"))
 ```

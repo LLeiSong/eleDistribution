@@ -61,15 +61,19 @@ gather_data_fs <- function(bry, data_path) {
              c(3, 5, 7))) %>% 
         map_chr(paste, sep = "_", collapse = "_")
     
-    # Read land cover and project
-    lc <- rast(file.path(data_path, "landcover_1km.tif"))
-    names(lc) <- "landcover"
-    lc <- project(lc, crs(bios), method = "near")
-    lc <- resample(lc, bios, method = "near")
+    # # Read land cover and project
+    # lc <- rast(file.path(data_path, "landcover_1km.tif"))
+    # names(lc) <- "landcover"
+    # lc <- project(lc, crs(bios), method = "near")
+    # lc <- resample(lc, bios, method = "near")
+    # 
+    # # Put them together, mask and save out
+    # vars <- c(lc, bios, ndvis, dists, terrains, ls_c_metrics)
+    # rm(lc, bios, ndvis, dists, terrains, ls_c_metrics)
     
     # Put them together, mask and save out
-    vars <- c(lc, bios, ndvis, dists, terrains, ls_c_metrics)
-    rm(lc, bios, ndvis, dists, terrains, ls_c_metrics)
+    vars <- c(bios, ndvis, dists, terrains, ls_c_metrics)
+    rm(bios, ndvis, dists, terrains, ls_c_metrics)
     
     vars <- mask(vars, bry, touches = TRUE)
     writeRaster(vars, file.path(data_path, "variables.tif"))
