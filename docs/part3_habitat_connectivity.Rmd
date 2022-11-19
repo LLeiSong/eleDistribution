@@ -1,5 +1,5 @@
 ---
-title: 'Part3: habitat connectivity modeling'
+title: 'Part3: convervation status analysis'
 author: "Lei Song"
 date: "7/27/2022"
 output: html_document
@@ -7,6 +7,395 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(stars)
+
+data_path <- here("data")
+result_path <- here("results")
+vct_path <- file.path(data_path, "vectors")
+rst_path <- file.path(data_path, "rasters")
+pat_path <- file.path(data_path, "vars_patch")
+cnt_path <- file.path(data_path, "connectivity")
+cnt_exp_path <- file.path(result_path, "connectivity")
 ```
 
+## Habitat clusters
 
+Overlap the convex hull of census blocks and expert range map to make the habitat clusters. These clusters will be used to model the long-distance habitat connectivity between them.
+
+There would be three clusters:
+
+- North
+- Southwest
+- Southeast
+
+```{r}
+# Habitat clusters
+habitat_clusters <- read_sf(
+    file.path(data_path, "observations/habitat_clusters.geojson"))
+
+habitat_clusters <- do.call(
+    rbind, lapply(unique(habitat_clusters$cluster), 
+                  function(index) {
+        habitat_clusters %>% filter(cluster == index) %>% 
+            st_union() %>% st_convex_hull() %>% 
+            st_as_sf(cluster = index) %>% 
+            rename(geometry = x)
+}))
+
+# Overlap with expert range map
+range_map <- read_sf(
+    file.path(data_path, "observations/range_map.geojson"))
+
+habitat_clusters <- st_intersection(range_map, habitat_clusters) %>% 
+    mutate(area = st_area(.) %>% units::set_units("km2")) %>% 
+    filter(area > 10000 %>% units::set_units("km2")) %>% 
+    arrange(cluster) %>% 
+    mutate(name = c("North", "Southeast", "Southwest")) %>% 
+    select(cluster, name)
+
+write_sf(habitat_clusters, 
+         file.path(data_path, "observations",
+                   "habitat_clusters_aggre.geojson"))
+
+# Rasterize the clusters
+template <- read_stars(
+    file.path(result_path, "landscape_utility_1km_integrated.tif")) %>% 
+    split() %>% select(prediction)
+template <- template %>% mutate("prediction" = -9999)
+
+habitat_clusters <- st_rasterize(habitat_clusters, template)
+write_stars(habitat_clusters, 
+            file.path(cnt_path, "habitat_clusters.tif"),
+            type = "Byte", NA_value = -9999)
+```
+
+## Habitat connectivity
+
+Based on the habitat clusters: north, southwest, southeast. Then:
+
+- Analyze the connectivity between these three big habitat clusters.
+- Analyze the connectivity between small habitat patches within each habitat clusters.
+
+#### Movement masks
+
+There are not many natural barriers for African elephants to move around savannas because elephant can adapt to a wide range of climate and they can swim or hike. Because elephants are good swimmer and they can swim as far as over 20 miles, so we did not include water as barriers. However, previous studies argued that elephants would avoid deep mountains if possible due to multiple reasons, so we include mountains as natural barriers. And we classify the mountains by the average height and slope.
+
+Natural barriers
+
+- Mountains (such as East African Rift, Eastern Arc mountains) (done)
+
+Anthropological barriers
+
+- Farmlands (done)
+- Dense settlements (done)
+
+#### Prepare ancillary data
+
+First, use the DEM map at 1 km to extract the high mountains:
+
+- Make a focal mean with window size of 41.
+- Use elevation to subtract the focal mean.
+- Only keep values higher than 500 as mountains that could be a barriers for elephants.
+
+```{r}
+library(sf)
+
+deep_water <- read_sf(file.path(vct_path, "deep_water.geojson"))
+elevation <- rast(file.path(rst_path, "dsm_tanzania_1km.tif"))
+
+deep_water <- rasterize(vect(deep_water), elevation)
+elevation <- mask(elevation, deep_water, inverse = TRUE)
+ele_mean <- focal(elevation, w = 41, fun = "mean", na.rm = TRUE)
+mnt_ele <- elevation - ele_mean
+# the threshold is selected according to literature.
+# assume the elephants have to climb some mountains if necessary.
+mountains <- mnt_ele >= 300
+mountains[mountains == 0] <- NA
+
+writeRaster(mountains, file.path(cnt_path, "mountains.tif"))
+
+# Mask the suitability map
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"),
+    lyrs = 1)
+
+mountains <- mask(mountains, suitability)
+suitability <- mask(suitability, mountains, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block.tif'))
+
+# Write out asc file
+suitability[is.na(suitability)] <- -9999
+
+writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block.asc'),
+            wopt = list(NAflag = -9999))
+
+# Short-path, double the mountain height
+# assume elephants don't mind hiking for a short path.
+mountains <- mnt_ele >= 600
+mountains[mountains == 0] <- NA
+
+writeRaster(mountains, file.path(cnt_path, "mountains_spath.tif"))
+
+# Mask the suitability map
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"),
+    lyrs = 1)
+
+mountains <- mask(mountains, suitability)
+suitability <- mask(suitability, mountains, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
+
+# Write out asc file
+suitability[is.na(suitability)] <- -9999
+
+writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block_spath.asc'),
+            wopt = list(NAflag = -9999))
+```
+
+Then get farmland and savanna proportion and rasterize mountain elevation.
+
+```{r}
+# Farmland and savanna
+vars <- rast(file.path(pat_path, "variables.tif"))
+cropland <- subset(vars, "cropland_ratio_3")
+
+writeRaster(cropland, file.path(cnt_path, "cropland_ratio.tif"))
+```
+
+The get the settlement density with a moving window 3 by 3.
+
+```{r}
+# Cut the whole image to tiles
+# I guess large vector can slow down the computation significantly
+template <- rast(file.path("data/vars_patch", "bio4.tif"),
+                 lyrs = 1)
+values(template) <- NA
+parts <- aggregate(template, fact = 60)
+temp_dir <- tempdir()
+output_tiles <- makeTiles(
+    template, parts,
+    filename = file.path(temp_dir, 'output_.tif'))
+rm(temp_dir, parts, template)
+
+# Summarize the settlement count within each cell tile by tile
+temp_dir <- file.path(tempdir(), "results_settlement")
+dir.create(temp_dir)
+message('Save raster chunks to %s', temp_dir)
+
+settlement_density <- pbmclapply(output_tiles, function(fname) {
+    bry <- read_sf(
+        file.path("/Users/pinot/Dropbox/research/eleDistribution",
+                  "data/vectors/mainland_tanzania.geojson")) %>% 
+        select()
+    id <- as.polygons(rast(fname) %>% ext(), crs = "epsg:4326") %>% 
+        st_as_sf() %>% st_intersects(bry) %>% unlist()
+    if (length(id) != 0) {
+        outname <- file.path(temp_dir, basename(fname))
+        rst <- rast(fname)
+        vct <- crop(vect(buildings), rst)
+        if (nrow(vct) == 0) {
+            values(rst) <- 0
+            writeRaster(rst, outname)
+        } else {
+            rst <- rasterizeGeom(vct, rst, fun = "count")
+            writeRaster(rst, outname)
+        }
+        rm(rst, vct); gc()
+        outname
+    } else fname
+}, mc.cores = 7, ignore.interactive = TRUE)
+settlement_density <- vrt(unlist(settlement_density))
+writeRaster(settlement_density, 
+            file.path("data/connectivity", "settlement_density.tif"))
+
+# moving window sum
+settlement_density <- focal(settlement_density, w = 3, fun = sum)
+writeRaster(settlement_density, 
+            file.path("data/connectivity", "settlement_density_3.tif"))
+```
+
+#### Prepare connectivity modeling data
+
+First, increase the suitability of savanna as a main habitat, then:
+
+- Run a base model
+- Add high mountains as barriers (different levels)
+- Add farmlands and settlements barriers (different levels)
+
+```{r}
+# Make spatial files
+# Habitat clusters
+habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters[habitat_clusters == 0] <- -9999
+writeRaster(habitat_clusters, file.path(cnt_path, 'habitat_clusters.asc'),
+            wopt = list(NAflag = -9999))
+
+# 1. Make the original suitability under current condition as reference
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"),
+    lyrs = 1)
+suitability[is.na(suitability)] <- -9999
+writeRaster(suitability, file.path(cnt_path, 'suitability_original.asc'),
+            wopt = list(NAflag = -9999))
+
+# 2. Suitability with mountains as barriers was generated above
+
+# 3. Suitability with settlement and cropland as barriers
+settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
+settlement <- settlement > 400 # a small town
+cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+# Very conservative. 
+# Assume elephants would take the risk if there is no choice.
+cropland <- cropland > 0.9 
+msk <- (settlement + cropland) >= 1
+msk[msk == 0] <- NA
+
+suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
+suitability <- mask(suitability, msk, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, file.path(cnt_path, 'suitability_human_block.tif'))
+
+# Write asc
+suitability[is.na(suitability)] <- -9999
+writeRaster(suitability, file.path(cnt_path, 'suitability_human_block.asc'),
+            wopt = list(NAflag = -9999))
+
+# Just settlements
+settlement[settlement == 0] <- NA
+suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
+suitability <- mask(suitability, settlement, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, file.path(cnt_path, 'suitability_slm_block.tif'))
+
+# Short-path
+suitability <- rast(file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
+suitability <- mask(suitability, msk, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(
+    suitability, file.path(cnt_path, 'suitability_human_block_spath.tif'))
+
+# Write asc
+suitability[is.na(suitability)] <- -9999
+writeRaster(
+    suitability, file.path(cnt_path, 'suitability_human_block_spath.asc'),
+    wopt = list(NAflag = -9999))
+
+# 4. Suitability with settlement and all cropland as barriers
+# Just consider cropland
+settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
+settlement <- settlement > 200 # a small town
+cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+# Very conservative. 
+# Assume elephants would take the risk if there is no choice.
+cropland <- cropland > 0.2 
+msk <- (settlement + cropland) >= 1
+msk[msk == 0] <- NA
+
+suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
+suitability <- mask(suitability, msk, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, 
+            file.path(cnt_path, 'tability_human_block_complete.tif'))
+
+# Write asc
+suitability[is.na(suitability)] <- -9999
+writeRaster(suitability, 
+            file.path(cnt_path, 'suitability_human_block_complete.asc'),
+            wopt = list(NAflag = -9999))
+
+# Short path
+suitability <- rast(file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
+suitability <- mask(suitability, msk, inverse = TRUE,
+                    updatevalue = 0)
+writeRaster(suitability, 
+            file.path(cnt_path, 'tability_human_block_complete_spath.tif'))
+
+# Write asc
+suitability[is.na(suitability)] <- -9999
+writeRaster(suitability, 
+            file.path(cnt_path, 'suitability_human_block_complete_spath.asc'),
+            wopt = list(NAflag = -9999))
+```
+
+#### Long-distance landscape connectivity
+
+Prepare config files for circuitscape, and then run the experiments.
+
+```
+library(JuliaCall)
+julia_setup(installJulia = TRUE)
+julia_install_package_if_needed("Circuitscape")
+julia_library("Circuitscape")
+julia_command(sprintf('compute("%s")', fname))
+```
+
+```{r}
+# install.packages("ini")
+library(ini)
+library(purrr)
+# write out the configuration files
+config <- read.ini(file.path(cnt_path, "circuitscape_setting_template.ini"))
+fnames <- list.files(cnt_path, pattern = "suitability.*\\.asc$",
+                     full.names = TRUE)
+
+# set up Julia
+library(JuliaCall)
+# julia_setup(installJulia = TRUE)
+julia_install_package_if_needed("Circuitscape")
+julia_library("Circuitscape")
+
+walk(fnames, function(fn) {
+    # Define the name for the run
+    nm <- gsub("suitability_", "", fs::path_ext_remove(basename(fn)))
+    message(sprintf("Run experiment for the case: %s.", nm))
+    
+    # Revise the config parameters
+    config$`Output options`$output_file <-
+        file.path(cnt_exp_path, nm)
+    config$`Logging Options`$log_file <-
+        file.path(cnt_exp_path, sprintf("%s.log", nm))
+    config$`Options for pairwise and one-to-all and all-to-one modes`$point_file <-
+        file.path(cnt_path, 'habitat_clusters.asc')
+    config$`Habitat raster or graph`$habitat_file <- fn
+    fname <- file.path(cnt_path, sprintf("%s.ini", nm))
+    write.ini(config, fname)
+    
+    if (file.exists(fname)) {
+        julia_command(sprintf('compute("%s")', fname))
+    } else {
+        warning("Failed to write out config file.")
+    }
+})
+
+# Gather results and compare
+```
+
+#### Short-distance landscape connectivity within clusters
+
+Overlap the PAs and habitat clusters.
+
+```{r}
+pas <- read_sf(file.path(vct_path, "wdpa_selected.geojson")) %>% 
+    filter(DESIG_ENG %in% c("Game Reserve", "National Park",
+                            "Game controlled area", "Conservation Area",
+                            "Open area", "Wildlife Management Area"))
+habitat_clusters <- read_sf(file.path(data_path, "observations",
+                                      "habitat_clusters_aggre.geojson"))
+pas <- pas %>% slice(unique(unlist(st_intersects(habitat_clusters, pas))))
+pas <- st_join(pas, habitat_clusters) %>% 
+    mutate(park_name = NAME) %>% 
+    select(cluster, name, park_name)
+write_sf(pas, file.path(cnt_path, "pas.geojson"))
+```
+
+Randomly generate one 5km habitat point within each PA, and then connect them by graph theory (circuitscape). Run this for 100 iteration to target the hotpots.
+
+```
+Rscript scripts/circt_points_cli.R -c no_of_cluster -n 50
+```
