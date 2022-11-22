@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
 library(here)
 library(terra)
 library(ggplot2)
@@ -301,7 +301,7 @@ suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
 suitability <- mask(suitability, msk, inverse = TRUE,
                     updatevalue = 0)
 writeRaster(suitability, 
-            file.path(cnt_path, 'tability_human_block_complete.tif'))
+            file.path(cnt_path, 'suitability_human_block_complete.tif'))
 
 # Write asc
 suitability[is.na(suitability)] <- -9999
@@ -398,4 +398,260 @@ Randomly generate one 5km habitat point within each PA, and then connect them by
 
 ```
 Rscript scripts/circt_points_cli.R -c no_of_cluster -n 50
+```
+
+## Analysis the results
+### Long-distance connectivity between habitat clusters
+
+```{r}
+# Normalize current
+norm_rast <- function(s){
+    minmax(s, compute = TRUE)
+    nx <- minmax(s)    
+    (s - nx[1,]) / (nx[2,] - nx[1,])
+}
+
+# Read habitat clusters and accumulated current maps
+habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.asc"))
+curmap_block <- rast(file.path(cnt_exp_path, "human_block_cum_curmap.asc"))
+curmap_block <- mask(curmap_block, habitat_clusters, 
+                     inverse = TRUE, updatevalue = NA)
+curmap_block <- norm_rast(curmap_block)
+writeRaster(curmap_block, 
+            file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+
+curmap_block_complete <- rast(
+    file.path(cnt_exp_path, "human_block_complete_max_curmap.asc"))
+curmap_block_complete <- mask(curmap_block_complete, habitat_clusters, 
+                              inverse = TRUE, updatevalue = NA)
+curmap_block_complete <- norm_rast(curmap_block_complete)
+writeRaster(curmap_block_complete, 
+            file.path(cnt_exp_path, "connectivity_scenario2.tif"))
+
+## Read farmlands and settlements under different scenarios
+settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
+cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+mountains <- rast(file.path(cnt_path, "mountains.tif"))
+mountains[mountains == 1] <- 4
+
+# Scenario 1
+cropland_s1 <- cropland > 0.9
+settlement_s1 <- settlement > 400
+settlement_s1[isTRUE(settlement_s1)] <- 2
+humans_s1 <- sum(cropland_s1, settlement_s1, na.rm = TRUE)
+humans_s1 <- mask(humans_s1, mask(mountains, humans_s1), 
+                  inverse = TRUE, updatevalue = 4)
+writeRaster(humans_s1, file.path(cnt_path, "blocks_s1.tif"))
+
+# Scenario 2
+cropland_s2 <- cropland > 0.2
+settlement_s2 <- settlement > 200
+settlement_s2[isTRUE(settlement_s2)] <- 2
+humans_s2 <- sum(cropland_s2, settlement_s2, na.rm = TRUE)
+humans_s2 <- mask(humans_s2, mask(mountains, humans_s2), 
+                  inverse = TRUE, updatevalue = 4)
+writeRaster(humans_s2, file.path(cnt_path, "blocks_s2.tif"))
+```
+
+#### Existing corridors between habitat clusters
+
+```{r}
+library(classInt)
+library(rmapshaper)
+
+current_map_s1 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+
+# Get cuts
+values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.02) & 
+                     values <= quantile(values, 0.98)]
+breaks_s1 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+
+corridor_s1 <- current_map_s1 > breaks_s1$brks[5]
+corridor_s1[corridor_s1 == 0] <- NA
+
+corridor_s1 <- st_as_sf(corridor_s1, merge = TRUE, na.rm = TRUE) %>% 
+    mutate(area = st_area(.) %>% units::set_units("km2")) %>% 
+    filter(area > 500 %>% units::set_units("km2")) %>% 
+    select(-area) %>% 
+    ms_simplify(keep = 0.2) %>% st_make_valid()
+
+write_sf(corridor_s1, file.path(cnt_exp_path, "corridors_s1.geojson"))
+
+# After Human edits
+area_thresh <- units::set_units(1000, km^2)
+corridor_s1 <- read_sf(file.path(cnt_exp_path, "corridors_s1.geojson")) %>% 
+    smoothr::fill_holes(threshold = area_thresh) %>% 
+    ms_simplify(keep = 0.5)
+write_sf(corridor_s1, file.path(cnt_exp_path, "corridors_s1_simple.geojson"))
+```
+
+#### Path analysis for the corridors between habitat clusters
+
+```{r}
+library(ggridges)
+library(tidyr)
+
+# NDVI dry season, NDVI wet season, elevation
+elevation <- rast(file.path(rst_path, "dsm_tanzania_1km.tif"))
+ndvi_dry <- rast(file.path(
+    data_path, "NDVI","lansat8_sr_13_19_dry_NDVI_mean_1000m.tif")) %>% 
+    resample(elevation)
+ndvi_wet <- rast(file.path(
+    data_path, "NDVI","lansat8_sr_13_19_wet_NDVI_mean_1000m.tif")) %>% 
+    resample(elevation)
+cropland_ratio <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+vars <- c(elevation, ndvi_dry, ndvi_wet, cropland_ratio)
+rm(elevation, ndvi_dry, ndvi_wet, cropland_ratio)
+names(vars) <- c("Elevation", "NDVI (dry season)", 
+                 "NDVI (wet season)", "Cropland coverage")
+
+random_paths <- read_sf(
+    file.path(cnt_exp_path, "random_path_within_corridor.shp"))
+random_path_statistics <- lapply(random_paths$id, function(index){
+    if (index %in% 1:3){
+        terra::extract(
+            vars, 
+            random_paths %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-y) %>% mutate(lat = y) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lat, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    } else {
+        terra::extract(
+            vars, 
+            random_paths %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-x) %>% mutate(lon = x) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lon, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    }
+})
+
+save(random_path_statistics, 
+     file = file.path(cnt_exp_path, "random_path_statistics.rda"))
+```
+
+### Short-distance connectivity within each habitat cluster
+
+```{r}
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+
+## Read farmlands and settlements under different scenarios
+settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
+cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+mountains <- rast(file.path(cnt_path, "mountains_spath.tif"))
+mountains[mountains == 1] <- 4
+
+# Scenario 1
+cropland_s1 <- cropland > 0.9
+settlement_s1 <- settlement > 400
+settlement_s1[isTRUE(settlement_s1)] <- 2
+humans_s1 <- sum(cropland_s1, settlement_s1, na.rm = TRUE)
+humans_s1 <- mask(humans_s1, mask(mountains, humans_s1), 
+                  inverse = TRUE, updatevalue = 4)
+writeRaster(humans_s1, file.path(cnt_path, "blocks_spath_s1.tif"))
+
+# Scenario 2
+cropland_s2 <- cropland > 0.2
+settlement_s2 <- settlement > 200
+settlement_s2[isTRUE(settlement_s2)] <- 2
+humans_s2 <- sum(cropland_s2, settlement_s2, na.rm = TRUE)
+humans_s2 <- mask(humans_s2, mask(mountains, humans_s2), 
+                  inverse = TRUE, updatevalue = 4)
+writeRaster(humans_s2, file.path(cnt_path, "blocks_spath_s2.tif"))
+```
+
+#### Habitat cluster No.1
+
+```{r}
+cls_path <- file.path(cnt_exp_path, "cluster_1")
+
+# Borders
+pas_c1 <- pas %>% filter(cluster == 1)
+bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+
+# current
+curmap_block_c1 <- rast(
+    file.path(cls_path, "human_block",
+              "cum_curmap_human_block_cluster1.tif"))
+curmap_block_c1 <- mask(curmap_block_c1, bry)
+curmap_block_c1 <- norm_rast(curmap_block_c1)
+writeRaster(curmap_block_c1, 
+            file.path(cls_path, "c1_connectivity_scenario1.tif"))
+
+curmap_block_complete_s1 <- rast(
+    file.path(cls_path, "human_block_complete",
+              "cum_curmap_human_block_complete_cluster1.tif"))
+curmap_block_complete_s1 <- mask(curmap_block_complete_s1, bry)
+curmap_block_complete_s1 <- norm_rast(curmap_block_complete_s1)
+writeRaster(curmap_block_complete_s1, 
+            file.path(cls_path, "c1_connectivity_scenario2.tif"))
+```
+
+#### Habitat cluster No.2
+
+```{r}
+cls_path <- file.path(cnt_exp_path, "cluster_2")
+
+# Borders
+pas_c2 <- pas %>% filter(cluster == 2)
+bry <- st_union(pas_c2) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+
+# current
+curmap_block_c2 <- rast(
+    file.path(cls_path, "human_block",
+              "cum_curmap_human_block_cluster2.tif"))
+curmap_block_c2 <- mask(curmap_block_c2, bry)
+curmap_block_c2 <- norm_rast(curmap_block_c2)
+writeRaster(curmap_block_c2, 
+            file.path(cls_path, "c2_connectivity_scenario1.tif"))
+
+curmap_block_complete_s2 <- rast(
+    file.path(cls_path, "human_block_complete",
+              "cum_curmap_human_block_complete_cluster2.tif"))
+curmap_block_complete_s2 <- mask(curmap_block_complete_s2, bry)
+curmap_block_complete_s2 <- norm_rast(curmap_block_complete_s2)
+writeRaster(curmap_block_complete_s2, 
+            file.path(cls_path, "c2_connectivity_scenario2.tif"))
+```
+
+#### Habitat cluster No.3
+
+```{r}
+cls_path <- file.path(cnt_exp_path, "cluster_3")
+
+# Borders
+pas_c3 <- pas %>% filter(cluster == 3)
+bry <- st_union(pas_c3) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+
+# current
+curmap_block_c3 <- rast(
+    file.path(cls_path, "human_block",
+              "cum_curmap_human_block_cluster3.tif"))
+curmap_block_c3 <- mask(curmap_block_c3, bry)
+curmap_block_c3 <- norm_rast(curmap_block_c3)
+writeRaster(curmap_block_c3, 
+            file.path(cls_path, "c3_connectivity_scenario1.tif"))
+
+curmap_block_complete_s3 <- rast(
+    file.path(cls_path, "human_block_complete",
+              "cum_curmap_human_block_complete_cluster3.tif"))
+curmap_block_complete_s3 <- mask(curmap_block_complete_s3, bry)
+curmap_block_complete_s3 <- norm_rast(curmap_block_complete_s3)
+writeRaster(curmap_block_complete_s3, 
+            file.path(cls_path, "c3_connectivity_scenario2.tif"))
 ```
