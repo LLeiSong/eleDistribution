@@ -451,10 +451,12 @@ fg_list <- lapply(1:length(nms), function(n){
             annotate("text", x = min(values$x), y = 1, 
                       label = sprintf("K-S Distance: %s", 
                                       round(ks_result$statistic, 2)),
-                     hjust = 0, vjust = 1) +
+                     hjust = 0, vjust = 1, size = 3) +
             theme_classic() +
-            theme(text = element_text(size = 11),
-                  plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+            theme(text = element_text(size = 9),
+                  axis.title = element_text(size = 9),
+                  axis.text = element_text(size = 9),
+                  plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
     } else {
         ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
             geom_histogram(aes(fill = type), 
@@ -471,19 +473,14 @@ fg_list <- lapply(1:length(nms), function(n){
                      x = 0, y = 1, 
                      label = sprintf("K-S Distance: %s", 
                                      round(ks_result$statistic, 2)),
-                     hjust = 0) +
+                     hjust = 0, size = 3) +
             theme_classic() +
-            theme(text = element_text(size = 11),
-                  plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+            theme(text = element_text(size = 9),
+                  axis.title = element_text(size = 9),
+                  axis.text = element_text(size = 9),
+                  plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
     }
 })
-
-ggarrange(plotlist = fg_list, ncol = 3, nrow = 8, 
-          common.legend = TRUE, legend = "bottom")
-
-fg_path <- here("docs/figures")
-ggsave(file.path(fg_path, "vars_occ_range.png"), 
-       width = 8, height = 12, dpi = 500, bg = "white")
 
 dist_fg_list <- lapply(names(vars_range)[c(4:9)], function(nm_var){
     values_occ <- vars_occ %>% select(all_of(nm_var)) %>% 
@@ -530,19 +527,29 @@ dist_fg_list <- lapply(names(vars_range)[c(4:9)], function(nm_var){
                  x = 0, y = 1, 
                  label = sprintf("K-S Distance: %s", 
                                  round(ks_result$statistic, 2)),
-                 hjust = 0) +
+                 hjust = 0, size = 3) +
         theme_classic() +
-        theme(text = element_text(size = 11),
-              plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"))
+        theme(text = element_text(size = 9),
+              axis.title = element_text(size = 9),
+              axis.text = element_text(size = 10),
+              plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
 
 })
 
-ggarrange(plotlist = dist_fg_list, ncol = 3, nrow = 2, 
+# Reorganize the figures and plot them.
+ggarrange(plotlist = fg_list[1:18], ncol = 3, nrow = 6, 
           common.legend = TRUE, legend = "bottom")
 
 fg_path <- here("docs/figures")
-ggsave(file.path(fg_path, "dist_vars_occ_range.png"), 
-       width = 8, height = 6, dpi = 500, bg = "white")
+ggsave(file.path(fg_path, "figureS1_vars_occ_range.png"), 
+       width = 6.5, height = 8, dpi = 500, bg = "white")
+
+ggarrange(plotlist = c(fg_list[19:24], dist_fg_list), 
+          ncol = 3, nrow = 4, 
+          common.legend = TRUE, legend = "bottom")
+
+ggsave(file.path(fg_path, "figureS1_vars_occ_range_cnt.png"), 
+       width = 6.5, height = 5.3, dpi = 500, bg = "white")
 
 # Get the statistics
 ks_statistics <- sapply(1:length(nms), function(n){

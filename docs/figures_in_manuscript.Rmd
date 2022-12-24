@@ -70,7 +70,8 @@ ggplot() +
         breaks = 'Spatially-thin region',
         guide = guide_legend(
             override.aes = list(linetype = "blank", 
-                                shape = NA))) +
+                                shape = NA),
+            order = 3, label.hjust = 0)) +
     ggnewscale::new_scale_fill() +
     geom_sf_pattern(
         data = expert_range_map, 
@@ -85,7 +86,8 @@ ggplot() +
         NULL, values = "left45",
         breaks = "Expert range map",
         guide = guide_legend(
-            override.aes = list(shape = NA))) +
+            override.aes = list(shape = NA),
+            order = 2, label.hjust = 0)) +
     ggnewscale::new_scale_fill() +
     ggnewscale::new_scale_color() +
     geom_sf(data = census_blocks, 
@@ -96,29 +98,403 @@ ggplot() +
         palette = "YlOrRd", direction = 1,
         guide = guide_legend(
             override.aes = list(linetype = "blank", 
-                                shape = NA))) +
+                                shape = NA),
+            nrow = 3, title.position = "top", 
+            order = 4, label.hjust = 0)) +
     ggnewscale::new_scale_fill() +
     ggnewscale::new_scale_color() +
-    geom_sf(data = occ, aes(size = occ), 
+    geom_sf(data = occ, aes(size = occ), stroke = 0.2,
             color = "white", fill = "blue",
             pch = 21, show.legend = "point") +
     scale_size_manual(
-        NULL, values = 1.2, 
+        NULL, values = 1.0, 
         guide = guide_legend(
-            override.aes = list(linetype = "blank"))) +
+            override.aes = list(linetype = "blank"),
+            order = 1, label.hjust = 0)) +
     theme_bw() +
-    theme(text = element_text(size = 10),
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 11),
           legend.spacing.y = unit(0.1, 'cm'),
-          plot.margin = unit(rep(0.1, 4), "cm"))
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
 
-ggsave(file.path(fg_path, "figure1_study_area.png"), 
-       width = 5, height = 3.8, dpi = 500, bg = "white")
+ggsave(file.path(fg_path, "figure1_study_area_90w_130h_500dpi_1.5c.png"), 
+       bg = "white", width = 90, height = 130, 
+       units = "mm", dpi = 500)
 ```
 
 ## Results
+
 ### Figure 3
 
-Figure 3 is the combination of predicted suitability maps.
+```{r}
+evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    do.call(rbind,lapply(c(0.1, 0.2, 0.3, 0.4, 0.5), function (ratio) {
+        load(file.path(result_path, 
+                       sprintf("tuning_cv_%s_%s.rda", scale, ratio)))
+        
+        tuning_cv %>% 
+            select(sample_size, max_depth, ndim, scoring_metric,
+                   cbi, auc_ratio, TSS, auc, `f-measure`) %>% 
+            mutate(ratio = ratio)
+    })) %>% mutate(scale = scale)
+})) %>% rename(CBI = cbi, `AUC (ratio)` = auc_ratio, 
+               AUC = auc, `F-measure` = `f-measure`)
+
+# Check and compare the results
+evals <- evals %>%
+    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
+                 names_to = "metrics", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10)),
+           ratio = factor(ratio, levels = c(0.1, 0.2, 0.3, 0.4, 0.5))) %>% 
+    select(ratio, scale, metrics, value)
+
+facet_names <- c("2.5 minutes", "5 minutes", "10 minutes")
+names(facet_names) <- c("2.5", "5", "10")
+ggplot(evals, 
+       aes(x = ratio, y = value, fill = metrics, color = metrics)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 1, width = 0.5,
+                 position = position_dodge(width = 0.9)) +
+    stat_summary(
+        fun = median,
+        geom = 'line',
+        size = 0.6, 
+        aes(group = metrics, colour = metrics),
+        position = position_dodge(width = 0.9)) +
+    scale_fill_brewer("Evaluation metrics", palette = "Dark2",
+                      labels = c("AUC",
+                                  expression(paste(AUC[ratio])),
+                                  "F-measure")) +
+    scale_color_brewer("Evaluation metrics", palette = "Dark2",
+                       labels = c("AUC",
+                                  expression(paste(AUC[ratio])),
+                                  "F-measure")) +
+    stat_summary(
+        fun = median,
+        geom = 'point',
+        color = "black",
+        shape = "-",
+        size = 5, 
+        aes(group = metrics),
+        position = position_dodge(width = 0.9),
+        show.legend = FALSE) +
+    facet_wrap(~scale, scales = "free_y", 
+               labeller = labeller(scale = facet_names)) +
+    ylab('') +
+    xlab('Sampling ratio of pseudo occurrences') +
+    theme_pubclean() +
+    theme(text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top",
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure3_pseudo_sample_190w_95h_500dpi_1.5c.png"), 
+       bg = "white", width = 190, height = 95, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 4
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+
+tabularize_evaluation <- function(eval, type = "train") {
+    if (type == "train") {
+        tibble(
+            CBI = eval$po_evaluation$boyce$cor,
+            `AUC (ratio)` = eval$po_evaluation$roc_ratio$auc_ratio,
+            TSS = eval$pb_evaluation$TSS$`Optimal TSS`,
+            AUC = eval$pb_evaluation$roc$auc,
+            Sensitivity = eval$pb_evaluation$sensitivity,
+            `F-measure` = eval$pb_evaluation$`f-measure`)
+    } else {
+        tibble(
+        Specificity = eval$pb_evaluation$specificity)
+    }
+}
+
+evals_train <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(runs, function(run) {
+        tabularize_evaluation(run$eval_test)
+    })) %>% mutate(scale = scale)
+}))
+
+evals_sensitivity <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("stt_real_same_%s.rda", scale)))
+    
+     do.call(rbind, lapply(sensitivity_real, function(each) {
+        data.frame("Sensitivity" = each)
+    })) %>% mutate(scale = scale)
+}))
+
+# Check and compare the results
+evals_train <- evals_train %>% 
+    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
+                 names_to = "metrics", values_to = "value") %>% 
+    select(scale, metrics, value) %>% 
+    mutate(scale = factor(
+        scale, levels = c(2.5, 5, 10),
+        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
+
+evals_sensitivity <- evals_sensitivity %>% 
+    pivot_longer(cols = c(Sensitivity),
+                 names_to = "metrics", values_to = "value") %>% 
+    select(scale, metrics, value) %>% 
+    mutate(scale = factor(
+        scale, levels = c(2.5, 5, 10),
+        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
+
+g_train <- ggplot(evals_train, 
+       aes(x = metrics, y = value, fill = scale)) +
+    geom_boxplot(outlier.colour = "black", outlier.alpha = 0,
+                 outlier.size = 1) +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    scale_x_discrete(limits = c("AUC", "AUC (ratio)", "F-measure"),
+                     labels = c("AUC", expression("AUC"[ratio]), "F-measure")) +
+    ylab('') +
+    xlab('') +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 2))
+
+g_eval_stt <- ggplot(evals_sensitivity, 
+                  aes(x = metrics, y = value, fill = scale)) +
+    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
+                 outlier.size = 2) +
+    scale_fill_brewer("Scale", palette = "Dark2") +
+    ylab('') +
+    xlab('') +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8)),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top") +
+    guides(fill = guide_legend(nrow = 2))
+
+figure <- ggarrange(g_train, g_eval_stt, 
+                    labels = c("A", "B"),
+                    font.label = list(size = 12, color = "black", 
+                                      face = "bold"),
+                    widths = c(2, 1),
+                    common.legend = TRUE)
+
+# Annotate the figure by adding a common labels
+annotate_figure(figure,
+                bottom = text_grob("Evaluation metrics", 
+                                   color = "black", 
+                                   size = 10, vjust = -1))
+
+ggsave(file.path(fg_path, "figure4_eval_coarse_90w_80h_500dpi_1c.png"), 
+       bg = "white", width = 90, height = 80, 
+       units = "mm", dpi = 500)
+```
+
+### Statistics
+
+```{r}
+evals_5scale <- evals_train %>% filter(scale == 5) %>% 
+    select(CBI, `AUC (ratio)`, TSS, AUC, `f-measure`)
+
+ci <- function(v, conf_level = 0.95) {
+    n <- length(v)
+    se <- sd(v) / sqrt(n)
+    qt(1 - ((1 - conf_level) / 2), n - 1) * se
+}
+
+evals_5scale <- evals_5scale %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+```{r}
+load(file.path(result_path, "runs_fs.rda"))
+    
+eval_fs <- do.call(rbind, lapply(runs, function(run) {
+    tabularize_evaluation(run$eval_test)}))
+rm(runs)
+
+evals_fs <- eval_fs %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+```{r}
+load(file.path(result_path, "eval_fine_integrated.rda"))
+eval_fine_integrated <- do.call(
+    rbind, lapply(eval_fine_integrated, function(eval) {
+    tabularize_evaluation(eval)}))
+
+eval_fine_integrated <- eval_fine_integrated %>%
+    summarise_all(list(mean = mean, sd = sd, ci = ci))
+```
+
+### Figure 5
+
+```{r}
+library(tidytext)
+
+# Fix a name lost bug here
+nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)), 
+         "NDVI (dry season)", "NDVI (wet season)", "NDVI seasonality",
+         "Road density", "River density", "Settlement density",
+         "Surface roughness", "Patch density", "Patch richness density",
+         "Shannon's diversity index", "Cropland edge density", 
+         "Tree edge density", "Mean of Contiguity index (Savanna)", 
+         "Savanna patch density", "Ratio of savanna", "Ratio of waterbodies")
+
+abs_mean <- function(v) mean(abs(v))
+var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(runs, function(run) {
+        shap_train <- run$variable_analysis$SHAP$train %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_train) <- nms
+        shap_test <- run$variable_analysis$SHAP$test %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_test) <- nms
+        rbind(as_tibble(shap_train) %>% mutate(type = "train"),
+        as_tibble(shap_test) %>% mutate(type = "test"))
+    })) %>% mutate(scale = scale)
+}))
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(cols = rev(names(var_imp))[-c(1, 2)],
+                 names_to = "variable", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10))) %>% 
+    mutate(type = factor(type, levels = c("train", "test")))
+var_imp <- var_imp %>% filter(type == "test") %>% 
+    group_by(type, scale, variable) %>% 
+    summarise(value = mean(value)) %>% ungroup()
+var_imp_overall <- var_imp %>% group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(scale = "overall") %>% 
+    mutate(value = value * 1000) %>% 
+    arrange(value)
+var_imp_overall <- var_imp_overall %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+var_imp <- var_imp %>% group_by(scale, variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(scale = factor(
+        scale, levels = c("2.5", "5", "10"),
+        labels = c("2.5 minutes", 
+                   "5 minutes", "10 minutes"))) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(data = var_imp_overall, aes(fill = "Overall"),
+             stat = "identity", color = "transparent",
+             position="identity") +
+    geom_point(aes(color = scale), shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.01, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.05, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.09, color = scale), 
+               shape = "|", size = 4) +
+    scale_fill_manual(NULL, values = "black",
+                      breaks = 'Overall') +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure5_var_imp_coarse_140w_112h_500dpi_1.5c.png"), 
+       bg = "white", width = 140, height = 112, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 6
+
+```{r}
+# Define names
+nms <- c("BIO4", "NDVI seasonality",
+         "Distance to settlements", "Distance to waterbodies",
+         "Vector ruggedness measure (3km)", 
+         "Mean of Contiguity index (Savanna, 3km)", 
+         "Cropland edge density (7km)", "Ratio of savanna (7km)",
+         "Savanna patch density (3km)")
+
+abs_mean <- function(v) mean(abs(v))
+load(file.path(result_path, "runs_fs.rda"))
+var_imp <- do.call(rbind, lapply(runs, function(run) {
+    shap_test <- run$variable_analysis$SHAP$test %>% 
+        summarise(across(all_of(names(.)), abs_mean))
+    names(shap_test) <- nms
+    shap_test
+})); rm(runs)
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(
+        cols = names(var_imp),
+        names_to = "variable", values_to = "value")
+var_imp <- var_imp %>% 
+    group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    ungroup() %>% arrange(value)
+var_imp <- var_imp %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(fill = "black",
+             stat = "identity", color = "transparent",
+             position="identity") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure6_var_imp_fine_140w_56h_500dpi_1.5c.png"), 
+       bg = "white", width = 140, height = 56, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 7
+
+Figure 7 is the combination of predicted suitability maps.
 
 ```{r}
 # Read layers
@@ -200,314 +576,873 @@ ggarrange(ggarrange(g1 + theme(legend.position = "none"),
 #           font.label = list(size = 12, color = "black", face = "bold"),
 #           common.legend = TRUE, legend = "bottom")
 
-ggsave(file.path(fg_path, "figure3_suit_maps.png"), 
-       width = 4, height = 6, dpi = 500, bg = "white")
+ggsave(file.path(fg_path, "figure7_suit_maps_90w_135h_500dpi_1.5c.png"), 
+       bg = "white", width = 90, height = 135, 
+       units = "mm", dpi = 500)
 ```
 
-### Statistics
+### Figure 8
+
+Figure 8 is the landscape connectivity for long-distance migration.
 
 ```{r}
-evals_5scale <- evals_train %>% filter(scale == 5) %>% 
-    select(CBI, `AUC (ratio)`, TSS, AUC, `f-measure`)
+library(stars)
+library(classInt)
 
-ci <- function(v, conf_level = 0.95) {
-    n <- length(v)
-    se <- sd(v) / sqrt(n)
-    qt(1 - ((1 - conf_level) / 2), n - 1) * se
+# Define colors
+col_habitats <- "#82ba9e"
+col_blocks <- data.frame(
+    id = 1:4,
+    color = c("#fbf65d", "#fe0200", "#c99245", "#43642c"),
+    name = c("Intensive farmland", "Intensive settlement", 
+             "Intensive farmland & settlement", 
+             "Mountain peaks"))
+
+# Read data
+bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
+habitat_clusters <- read_stars(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters[habitat_clusters == 0] <- NA
+habitat_clusters[habitat_clusters > 0] <- "Habitat cluster"
+
+# Scenario 1
+current_map_s1 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+blocks_s1 <- read_stars(
+    file.path(cnt_path, "blocks_s1.tif")) %>% 
+    st_crop(bry)
+blocks_s1[blocks_s1 == 0] <- NA
+names(blocks_s1) <- "blocks"
+blocks_s1 <- blocks_s1 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.02) & 
+                     values <= quantile(values, 0.98)]
+breaks_s1 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.3f,%.3f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
+current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
+                      labels = labels)
+# Plot
+g_s1 <- ggplot() +
+    geom_stars(data = current_map_s1, na.action = na.omit) +
+    scale_fill_brewer(
+        "Connectivity\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = habitat_clusters, 
+               na.action = na.omit, show.legend = FALSE) +
+    scale_fill_manual("", values = col_habitats,
+                      na.translate = FALSE) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s1, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent", linewidth = 0.5) +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+# Scenario 2
+current_map_s2 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario2.tif"))
+blocks_s2 <- read_stars(
+    file.path(cnt_path, "blocks_s2.tif")) %>% 
+    st_crop(bry)
+blocks_s2[blocks_s2 == 0] <- NA
+names(blocks_s2) <- "blocks"
+blocks_s2 <- blocks_s2 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.02) & 
+                     values <= quantile(values, 0.98)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.3f,%.3f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_s2 <- ggplot() +
+    geom_stars(data = current_map_s2, na.action = na.omit) +
+    scale_fill_brewer(
+        "Connectivity\nscenario 2\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = habitat_clusters, 
+               na.action = na.omit, show.legend = FALSE) +
+    scale_fill_manual("", values = col_habitats,
+                      na.translate = FALSE) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s2, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent", linewidth = 0.5) +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+# Legend
+current_map_s1 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+legend_common <- ggplot() +
+    geom_stars(data = current_map_s1, 
+               na.action = na.omit) +
+    scale_fill_distiller("Current density\n ",
+                         palette = "BuPu", breaks = c(0, 0.5, 1), 
+                         labels = c("Low", "Med", "High"), direction = 1) +
+    ggnewscale::new_scale_fill() +
+    geom_raster(data = data.frame(x = 1:5, y = 1:5, z = factor(1:5)),
+                aes(x = x, y = y, fill = z)) +
+    scale_fill_manual(
+        "", values = c(col_blocks$color, col_habitats),
+        labels = c(col_blocks$name, "Habitat cluster"),
+        na.translate = FALSE,
+        guide = guide_legend(nrow = 2, byrow = TRUE)) +
+    theme(text = element_text(size = 14),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0.3, 'cm'),
+          legend.box = "vertical",
+          legend.key.height = unit(0.3,"cm"),
+          plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(0.1, 4)),
+          legend.box.margin = margin(rep(0.1, 4)),
+          legend.title = element_text(size = 12))
+legend_common <- get_legend(legend_common)
+
+# Combining plots
+plots <- ggarrange(g_s1 + theme(legend.position = "none"), 
+                   g_s2 + theme(legend.position = "none"), 
+                   labels = c("A", "B"),
+                   font.label = list(size = 12),
+                   nrow = 1)
+ggarrange(plots, ggplot() + theme_void(),
+          legend_common, ggplot() + theme_void(), nrow = 4, 
+          heights = c(0.9, -0.01, 0.1, 0.09))
+
+ggsave(file.path(fg_path, "figure8_long_connect_190w_122h_500dpi_2c.png"), 
+       bg = "white", width = 190, height = 122, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 9
+
+Figure 9 is the main figure for the detected corridors and example path across corridors.
+
+```{r}
+# Main figure
+random_paths <- read_sf(
+    file.path(cnt_exp_path, "random_path_within_corridor.shp")) %>% 
+    mutate(id = LETTERS[1:6])
+bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
+habitat_clusters <- read_sf(file.path(data_path, "observations",
+                            "habitat_clusters_aggre.geojson"))
+corridors <- read_sf(file.path(cnt_exp_path, "corridors_s1_simple.geojson"))
+corridors <- st_join(corridors, random_paths)
+
+ggplot() +
+    geom_sf(data = habitat_clusters, aes(fill = "Habitat cluster"),
+            color = "transparent") +
+    geom_sf_text(data = habitat_clusters,
+                 aes(label = cluster), color = "black", 
+                 show_guide = FALSE) +
+    geom_sf(data = corridors, aes(fill = "Corridor"), 
+            color = "transparent") +
+    scale_fill_manual(NULL, values = c(col_habitats, "gray50"),
+                      breaks = c("Habitat cluster", 'Corridor'),
+                      guide = guide_legend(
+                          override.aes = list(linetype = "blank", 
+                                              shape = NA))) +
+    geom_sf(data = random_paths, aes(color = id), linewidth = 0.4) +
+    scale_color_brewer("", palette = "Set1", direction = -1,
+                       guide = "none") +
+    geom_sf_text(data = random_paths,
+                 aes(label = id), color = "black", 
+                 show_guide = FALSE) +
+    geom_sf(data = bry, fill = "transparent", color = "black",
+            linewidth = 0.2) +
+    theme_void() +
+    theme(text = element_text(size = 12),
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"),
+          legend.position = "bottom")
+
+ggsave(file.path(fg_path, "figure9_corridors_70w_70h_500dpi_1c.png"), 
+       bg = "white", width = 70, height = 70, 
+       units = "mm", dpi = 500)
+```
+
+
+### Figure 10
+
+Figure 10 is the environmental variable values across the random paths shown in figure 9.
+
+```{r}
+load(file.path(cnt_exp_path, "random_path_statistics.rda"))
+random_paths <- read_sf(
+    file.path(cnt_exp_path, "random_path_within_corridor.shp")) %>% 
+    mutate(id = LETTERS[1:6])
+
+norm_data <- function(s){
+    (s - min(s)) / (max(s) - min(s))
 }
 
-evals_5scale <- evals_5scale %>%
-    summarise_all(list(mean = mean, sd = sd, ci = ci))
-```
-
-```{r}
-load(file.path(result_path, "runs_fs.rda"))
-    
-eval_fs <- do.call(rbind, lapply(runs, function(run) {
-    tabularize_evaluation(run$eval_test)}))
-rm(runs)
-
-evals_fs <- eval_fs %>%
-    summarise_all(list(mean = mean, sd = sd, ci = ci))
-```
-
-```{r}
-load(file.path(result_path, "eval_fine_integrated.rda"))
-eval_fine_integrated <- do.call(
-    rbind, lapply(eval_fine_integrated, function(eval) {
-    tabularize_evaluation(eval)}))
-
-eval_fine_integrated <- eval_fine_integrated %>%
-    summarise_all(list(mean = mean, sd = sd, ci = ci))
-```
-
-### Figure 4
-
-```{r}
-evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
-    do.call(rbind,lapply(c(0.1, 0.2, 0.3, 0.4, 0.5), function (ratio) {
-        load(file.path(result_path, 
-                       sprintf("tuning_cv_%s_%s.rda", scale, ratio)))
-        
-        tuning_cv %>% 
-            select(sample_size, max_depth, ndim, scoring_metric,
-                   cbi, auc_ratio, TSS, auc, `f-measure`) %>% 
-            mutate(ratio = ratio)
-    })) %>% mutate(scale = scale)
-})) %>% rename(CBI = cbi, `AUC (ratio)` = auc_ratio, 
-               AUC = auc, `F-measure` = `f-measure`)
-
-# Check and compare the results
-evals <- evals %>%
-    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
-                 names_to = "metrics", values_to = "value") %>% 
-    mutate(scale = factor(scale, levels = c(2.5, 5, 10)),
-           ratio = factor(ratio, levels = c(0.1, 0.2, 0.3, 0.4, 0.5))) %>% 
-    select(ratio, scale, metrics, value)
-
-facet_names <- c("2.5 minutes", "5 minutes", "10 minutes")
-names(facet_names) <- c("2.5", "5", "10")
-ggplot(evals, 
-       aes(x = ratio, y = value, fill = metrics, color = metrics)) +
-    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
-                 outlier.size = 1, width = 0.5,
-                 position = position_dodge(width = 0.9)) +
-    stat_summary(
-        fun = median,
-        geom = 'line',
-        size = 0.6, 
-        aes(group = metrics, colour = metrics),
-        position = position_dodge(width = 0.9)) +
-    scale_fill_brewer("Evaluation metrics", palette = "Dark2",
-                      labels = c("AUC",
-                                  expression(paste(AUC[ratio])),
-                                  "F-measure")) +
-    scale_color_brewer("Evaluation metrics", palette = "Dark2",
-                       labels = c("AUC",
-                                  expression(paste(AUC[ratio])),
-                                  "F-measure")) +
-    stat_summary(
-        fun = median,
-        geom = 'point',
-        color = "black",
-        shape = "-",
-        size = 5, 
-        aes(group = metrics),
-        position = position_dodge(width = 0.9),
-        show.legend = FALSE) +
-    facet_wrap(~scale, scales = "free_y", 
-               labeller = labeller(scale = facet_names)) +
-    ylab('') +
-    xlab('Sampling ratio of pseudo occurrences') +
-    theme_pubclean() +
-    theme(text = element_text(size = 10, color = "black"),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8)),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top",
-          strip.text.x = element_text(size = 12, face = "bold")) +
-    guides(fill = guide_legend(nrow = 1))
-
-ggsave(file.path(fg_path, "figure4_optimal_pseudo_sample_size.png"), 
-       width = 6, height = 3, dpi = 500)
-```
-
-### Figure 5
-
-```{r}
-library(tidyverse)
-library(ggpubr)
-
-tabularize_evaluation <- function(eval, type = "train") {
-    if (type == "train") {
-        tibble(
-            CBI = eval$po_evaluation$boyce$cor,
-            `AUC (ratio)` = eval$po_evaluation$roc_ratio$auc_ratio,
-            TSS = eval$pb_evaluation$TSS$`Optimal TSS`,
-            AUC = eval$pb_evaluation$roc$auc,
-            Sensitivity = eval$pb_evaluation$sensitivity,
-            `F-measure` = eval$pb_evaluation$`f-measure`)
+fg_list <- lapply(random_path_statistics, function(each){
+    x_nm <- ifelse(names(each)[1] == "lat", "Latitude", "Longitude")
+    vals <- each
+    if ( x_nm == "Latitude") {
+        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
+            min(vals[vals$variable == "Elevation", "value"])
+        vals[vals$variable == "Elevation", "value"] <- 
+            norm_data(vals[vals$variable == "Elevation", "value"])
+        ggplot() +
+            geom_area(data = vals %>% filter(variable == "Elevation"),
+                      aes(x = lat, y = value, fill = "Elevation"), 
+                      color = "transparent",
+                      show.legend = TRUE) +
+            scale_fill_manual(NULL, values = "grey",
+                              breaks = 'Elevation',
+                              guide = guide_legend(
+                                  override.aes = list(linetype = "blank", 
+                                                      shape = NA))) +
+            geom_line(data = vals %>% filter(variable != "Elevation"), 
+                      aes(x = lat, y = value, color = variable),
+                      linewidth = 0.6) +
+            scale_color_brewer("", palette = "Dark2",
+                               guide = guide_legend(
+                                   override.aes = list(fill = NA))) +
+            scale_y_continuous(
+                "Cropland coverage", 
+                sec.axis = sec_axis(~ . * 1, name = "NDVI")
+            ) + xlab(x_nm) +
+            annotate(geom = "text", x = min(vals[, 1]) - 0.05, y = 0.5, 
+                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
+                     color = "red", size = 3, angle = 90) +
+            theme_classic() +
+            theme(legend.position = "top")+
+            theme(text = element_text(size = 12),
+                  legend.position = "bottom")
     } else {
-        tibble(
-        Specificity = eval$pb_evaluation$specificity)
+        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
+            min(vals[vals$variable == "Elevation", "value"])
+        vals[vals$variable == "Elevation", "value"] <- 
+            norm_data(vals[vals$variable == "Elevation", "value"])
+            
+        ggplot() +
+            geom_area(data = vals %>% filter(variable == "Elevation"),
+                      aes(x = lon, y = value, fill = "Elevation"), 
+                      color = "transparent",
+                      show.legend = TRUE) +
+            scale_fill_manual(NULL, values = "grey",
+                              breaks = 'Elevation',
+                              guide = guide_legend(
+                                  override.aes = list(linetype = "blank", 
+                                                      shape = NA))) +
+            geom_line(data = vals %>% filter(variable != "Elevation"), 
+                      aes(x = lon, y = value, color = variable),
+                      linewidth = 0.6) +
+            scale_color_brewer("", palette = "Dark2",
+                               guide = guide_legend(
+                                   override.aes = list(fill = NA))) +
+            scale_y_continuous(
+                "Cropland coverage", 
+                sec.axis = sec_axis(~ . * 1, name = "NDVI")) + xlab(x_nm) +
+            annotate(geom = "text", x = min(vals[, 1]) - 0.03, y = 0.5, 
+                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
+                     color = "red", size = 3, angle = 90) +
+            theme_classic() +
+            theme(legend.position = "top") +
+            theme(text = element_text(size = 12),
+                  legend.position = "bottom")
     }
-}
+})
 
-evals_train <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
-    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
-    
-    do.call(rbind, lapply(runs, function(run) {
-        tabularize_evaluation(run$eval_test)
-    })) %>% mutate(scale = scale)
-}))
+ggarrange(plotlist = fg_list, nrow = 3, ncol = 2,
+          labels = LETTERS[1:6], font.label = list(size = 12),
+          common.legend = TRUE, legend = "top")
 
-evals_sensitivity <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
-    load(file.path(result_path, sprintf("stt_real_same_%s.rda", scale)))
-    
-     do.call(rbind, lapply(sensitivity_real, function(each) {
-        data.frame("Sensitivity" = each)
-    })) %>% mutate(scale = scale)
-}))
-
-# Check and compare the results
-evals_train <- evals_train %>% 
-    pivot_longer(cols = c(`AUC (ratio)`, AUC, `F-measure`),
-                 names_to = "metrics", values_to = "value") %>% 
-    select(scale, metrics, value) %>% 
-    mutate(scale = factor(
-        scale, levels = c(2.5, 5, 10),
-        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
-
-evals_sensitivity <- evals_sensitivity %>% 
-    pivot_longer(cols = c(Sensitivity),
-                 names_to = "metrics", values_to = "value") %>% 
-    select(scale, metrics, value) %>% 
-    mutate(scale = factor(
-        scale, levels = c(2.5, 5, 10),
-        labels = c("2.5 minutes", "5 minutes", "10 minutes")))
-
-g_train <- ggplot(evals_train, 
-       aes(x = metrics, y = value, fill = scale)) +
-    geom_boxplot(outlier.colour = "black", outlier.alpha = 0,
-                 outlier.size = 1) +
-    scale_fill_brewer("Scale", palette = "Dark2") +
-    scale_color_brewer("Scale", palette = "Dark2") +
-    scale_x_discrete(limits = c("AUC", "AUC (ratio)", "F-measure"),
-                     labels = c("AUC", expression("AUC"[ratio]), "F-measure")) +
-    ylab('') +
-    xlab('') +
-    theme_classic() +
-    theme(text = element_text(size = 10),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8)),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top") +
-    guides(fill = guide_legend(nrow = 1))
-
-g_eval_stt <- ggplot(evals_sensitivity, 
-                  aes(x = metrics, y = value, fill = scale)) +
-    geom_boxplot(outlier.colour = "white", outlier.shape = 8,
-                 outlier.size = 2) +
-    scale_fill_brewer("Scale", palette = "Dark2") +
-    ylab('') +
-    xlab('') +
-    theme_classic() +
-    theme(text = element_text(size = 10),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8)),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top") +
-    guides(fill = guide_legend(nrow = 1))
-
-figure <- ggarrange(g_train, g_eval_stt, 
-                    labels = c("A", "B"),
-                    font.label = list(size = 12, color = "black", 
-                                      face = "bold"),
-                    widths = c(2, 1),
-                    common.legend = TRUE)
-
-# Annotate the figure by adding a common labels
-annotate_figure(figure,
-                bottom = text_grob("Evaluation metrics", 
-                                   color = "black", 
-                                   size = 10, vjust = -1))
-
-ggsave(file.path(fg_path, "figure5_eval_coarse_scales.png"), 
-       width = 4, height = 3, dpi = 500, bg = "white")
+ggsave(file.path(fg_path, "figure10_path_analysis_190w_181h_500dpi_2c.png"), 
+       bg = "white", width = 190, height = 181, 
+       units = "mm", dpi = 500)
 ```
 
-### Figure 6
+### Figure 11
+
+Figure 11 shows the simulated landscape connectivity for short-distance move.
+
+#### Figure 11-1 
+
+The figure for habitat cluster 1.
 
 ```{r}
-library(tidytext)
+library(classInt)
+cls_path <- file.path(cnt_exp_path, "cluster_1")
 
-# Fix a name lost bug here
-nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)), 
-         "NDVI (dry season)", "NDVI (wet season)", "NDVI seasonality",
-         "Road density", "River density", "Settlement density",
-         "Surface roughness", "Patch density", "Patch richness density",
-         "Shannon's diversity index", "Cropland edge density", 
-         "Tree edge density", "Mean of Contiguity index (Savanna)", 
-         "Savanna patch density", "Ratio of savanna", "Ratio of waterbodies")
+# Borders
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+pas_c1 <- pas %>% filter(cluster == 1)
+bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+hotspots_c1 <- read_sf(file.path(cls_path, "hotspots_conservation.shp"))
 
-abs_mean <- function(v) mean(abs(v))
-var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
-    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
-    
-    do.call(rbind, lapply(runs, function(run) {
-        shap_train <- run$variable_analysis$SHAP$train %>% 
-            summarise(across(all_of(names(.)), abs_mean))
-        names(shap_train) <- nms
-        shap_test <- run$variable_analysis$SHAP$test %>% 
-            summarise(across(all_of(names(.)), abs_mean))
-        names(shap_test) <- nms
-        rbind(as_tibble(shap_train) %>% mutate(type = "train"),
-        as_tibble(shap_test) %>% mutate(type = "test"))
-    })) %>% mutate(scale = scale)
-}))
+# Scenario 1
+current_map_s1 <- read_stars(
+    file.path(cls_path, "c1_connectivity_scenario1.tif"))
+blocks_s1 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
+    st_crop(bry)
+blocks_s1[blocks_s1 == 0] <- NA
+names(blocks_s1) <- "blocks"
+blocks_s1 <- blocks_s1 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
 
-## Reshape the table
-var_imp <- var_imp %>% 
-    pivot_longer(cols = rev(names(var_imp))[-c(1, 2)],
-                 names_to = "variable", values_to = "value") %>% 
-    mutate(scale = factor(scale, levels = c(2.5, 5, 10))) %>% 
-    mutate(type = factor(type, levels = c("train", "test")))
-var_imp <- var_imp %>% filter(type == "test") %>% 
-    group_by(type, scale, variable) %>% 
-    summarise(value = mean(value)) %>% ungroup()
-var_imp_overall <- var_imp %>% group_by(variable) %>% 
-    summarise(value = mean(value)) %>% 
-    mutate(scale = "overall") %>% 
-    mutate(value = value * 1000) %>% 
-    arrange(value)
-var_imp_overall <- var_imp_overall %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp_overall$variable))
-var_imp <- var_imp %>% group_by(scale, variable) %>% 
-    summarise(value = mean(value)) %>% 
-    mutate(value = value * 1000) %>% 
-    mutate(scale = factor(
-        scale, levels = c("2.5", "5", "10"),
-        labels = c("2.5 minutes", 
-                   "5 minutes", "10 minutes"))) %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp_overall$variable))
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks_s1 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
+current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
+                      labels = labels)
+# Plot
+g_s1 <- ggplot() +
+    geom_stars(data = current_map_s1, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s1, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c1, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
 
-ggplot(var_imp, aes(x = variable, y = value)) +
-    geom_bar(data = var_imp_overall, aes(fill = "Overall"),
-             stat = "identity", color = "transparent",
-             position="identity") +
-    geom_point(aes(color = scale), shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.01, color = scale), 
-               shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.05, color = scale), 
-               shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.09, color = scale), 
-               shape = "|", size = 4) +
-    scale_fill_manual(NULL, values = "black",
-                      breaks = 'Overall') +
-    scale_color_brewer("Scale", palette = "Dark2") +
-    ylab('mean(|Shapley value|) * 1000') +
-    xlab('Environmental variable') +
-    coord_flip() +
-    theme_pubclean() +
-    theme(text = element_text(size = 10, color = "black"),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8), color = "black"),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top", legend.justification = 'right',
-          strip.text.x = element_text(size = 12, face = "bold")) +
-    guides(fill = guide_legend(nrow = 1))
+# Scenario 2
+current_map_s2 <- read_stars(
+    file.path(cls_path, "c1_connectivity_scenario2.tif"))
+blocks_s2 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
+    st_crop(bry)
+blocks_s2[blocks_s2 == 0] <- NA
+names(blocks_s2) <- "blocks"
+blocks_s2 <- blocks_s2 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
 
-ggsave(file.path(fg_path, "figure6_var_imp_coarse.png"),
-       width = 5, height = 4, dpi = 500)
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_s2 <- ggplot() +
+    geom_stars(data = current_map_s2, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s2, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c1, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = hotspots_c1, color = "blue", 
+            fill = "transparent", linewidth = 0.6) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+plot_c1 <- ggarrange(g_s1 + theme(legend.position = "none"), 
+                     g_s2 + theme(legend.position = "none"), 
+                     labels = c("1.A", "1.B"),
+                     font.label = list(size = 12),
+                     nrow = 2)
 ```
 
-### Figure 7
+#### Figure 11-2
+
+The figure for habitat Cluster 2.
+
+```{r}
+cls_path <- file.path(cnt_exp_path, "cluster_2")
+
+# Borders
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+pas_c2 <- pas %>% filter(cluster == 2)
+bry <- st_union(pas_c2) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+hotspots_c2 <- read_sf(file.path(cls_path, "hotspots_conservation_c2.shp"))
+
+# Scenario 1
+current_map_s1 <- read_stars(
+    file.path(cls_path, "c2_connectivity_scenario1.tif"))
+blocks_s1 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
+    st_crop(bry)
+blocks_s1[blocks_s1 == 0] <- NA
+names(blocks_s1) <- "blocks"
+blocks_s1 <- blocks_s1 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks_s1 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
+current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
+                      labels = labels)
+# Plot
+g_s1 <- ggplot() +
+    geom_stars(data = current_map_s1, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s1, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c2, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+# Scenario 2
+current_map_s2 <- read_stars(
+    file.path(cls_path, "c2_connectivity_scenario2.tif"))
+blocks_s2 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
+    st_crop(bry)
+blocks_s2[blocks_s2 == 0] <- NA
+names(blocks_s2) <- "blocks"
+blocks_s2 <- blocks_s2 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_s2 <- ggplot() +
+    geom_stars(data = current_map_s2, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s2, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c2, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = hotspots_c2, color = "blue", 
+            fill = "transparent", linewidth = 0.8) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+plot_c2 <- ggarrange(g_s1 + theme(legend.position = "none"), 
+                     g_s2 + theme(legend.position = "none"), 
+                     labels = c("2.A", "2.B"),
+                     font.label = list(size = 12),
+                     nrow = 2)
+```
+
+#### Figure 11-3
+
+The figure for habitat Cluster 3.
+
+```{r}
+cls_path <- file.path(cnt_exp_path, "cluster_3")
+
+# Borders
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+pas_c3 <- pas %>% filter(cluster == 3)
+bry <- st_union(pas_c3) %>% st_convex_hull() %>% 
+    st_as_sf() %>% rename(geometry = x)
+hotspots_c3 <- read_sf(file.path(cls_path, "hotspots_conservation_c3.shp"))
+
+# Scenario 1
+current_map_s1 <- read_stars(
+    file.path(cls_path, "c3_connectivity_scenario1.tif"))
+blocks_s1 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
+    st_crop(bry)
+blocks_s1[blocks_s1 == 0] <- NA
+names(blocks_s1) <- "blocks"
+blocks_s1 <- blocks_s1 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks_s1 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
+current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
+                      labels = labels)
+# Plot
+g_s1 <- ggplot() +
+    geom_stars(data = current_map_s1, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s1, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c3, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+# Scenario 2
+current_map_s2 <- read_stars(
+    file.path(cls_path, "c3_connectivity_scenario2.tif"))
+blocks_s2 <- read_stars(
+    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
+    st_crop(bry)
+blocks_s2[blocks_s2 == 0] <- NA
+names(blocks_s2) <- "blocks"
+blocks_s2 <- blocks_s2 %>% 
+    mutate(blocks = factor(
+        blocks, levels = 1:4,
+        labels = c("Intensive farmland", "Intensive settlement", 
+                   "Intensive farmland & settlement", 
+                   "Mountain peaks"))) %>% 
+    dplyr::select(blocks)
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_s2 <- ggplot() +
+    geom_stars(data = current_map_s2, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s2, show.legend = FALSE) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE) +
+    geom_sf(data = pas_c3, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = hotspots_c3, color = "blue", 
+            fill = "transparent", linewidth = 0.8) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
+
+plot_c3 <- ggarrange(g_s1 + theme(legend.position = "none"), 
+                     g_s2 + theme(legend.position = "none"), 
+                     labels = c("3.A", "3.B"),
+                     font.label = list(size = 12),
+                     nrow = 2)
+```
+
+#### Plot together
+
+```{r}
+# Make the common legend
+current_map_s1 <- read_stars(
+    file.path(cls_path, "c3_connectivity_scenario1.tif"))
+legend_common <- ggplot() +
+    geom_stars(data = current_map_s1, 
+               na.action = na.omit) +
+    scale_fill_distiller("Current density\n ",
+        palette = "BuPu", breaks = c(0, 0.5, 1), 
+        labels = c("Low", "Med", "High"), direction = 1) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = blocks_s2) +
+    scale_fill_manual(
+        "", values = col_blocks$color,
+        na.translate = FALSE,
+        guide = guide_legend(order = 1)) +
+    geom_sf(data = pas_c3, aes(color = "Protected areas"), 
+            fill = "transparent") +
+    geom_sf(data = bry, aes(color = "Critical regions"), 
+            fill = "transparent") +
+    scale_color_manual(NULL, values = c("gray40", "blue"),
+                      breaks = c('Protected areas', "Critical regions"),
+                      guide = guide_legend(order = 2)) +
+    theme(text = element_text(size = 14),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.box = "vertical",
+          plot.margin = unit(rep(0, 4), "cm"),
+          legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.4,"cm"),
+          legend.margin = margin(rep(0.2, 4)),
+          legend.box.margin = margin(rep(0.1, 4)),
+          legend.title = element_text(size = 11))
+legend_common <- get_legend(legend_common)
+
+ggarrange(ggarrange(plot_c1, plot_c2, 
+                    plot_c3, ncol = 3), 
+          ggplot() + theme_void(),
+          legend_common, ggplot() + theme_void(),
+          nrow = 4, heights = c(3, -0.3, 1, -0.2))
+
+ggsave(file.path(fg_path, "figure11_clusters_190w_170h_500dpi_1c.png"), 
+       bg = "white", width = 190, height = 170, 
+       units = "mm", dpi = 500)
+```
+
+### Supplementary Figure S2
+
+The protected areas (PAs).
+
+```{r}
+study_area <- read_sf(
+    file.path(vct_path, "mainland_tanzania.geojson"))
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+clusters <- read_sf(
+    file.path(data_path, "observations", "habitat_clusters_aggre.geojson"))
+
+# Read other PAs
+pas_others <- read_sf(file.path(vct_path, "wdpa_selected.geojson"))
+pas_others <- pas_others %>% 
+    slice(-unique(unlist(st_intersects(pas, pas_others))))
+
+brys <- do.call(rbind, lapply(1:3, function(id){
+    pas %>% filter(cluster == id) %>% 
+        st_union() %>% st_convex_hull() %>% 
+        st_as_sf() %>% rename(geometry = x)
+})) %>% mutate(id = 1:3)
+
+cnts <- st_centroid(pas) %>% 
+    st_coordinates() %>% data.frame() %>% 
+    mutate(label = pas$park_name,
+           cluster = pas$cluster)
+
+# Plot
+g1 <- ggplot() +
+    geom_sf(data = study_area, 
+            fill = "transparent", color = "black", linewidth = 0.6) +
+    geom_sf(data = brys, 
+            fill = "transparent", 
+            aes(color = "Convex hull"), linewidth = 0.6) +
+    geom_sf(data = pas, 
+            fill = "transparent", 
+            aes(color = 'PAs used for connectivity')) +
+    geom_sf(data = pas_others %>% 
+                mutate(area = st_area(.)) %>% 
+                filter(area > 20000000 %>% units::set_units("m2")),
+            fill = "transparent", 
+            aes(color = "Other PAs")) +
+    scale_color_manual(
+        NULL, values = c("blue", "gray40", "orange"),
+        breaks = c("Convex hull", 
+                   'PAs used for connectivity', 
+                   "Other PAs")) +
+    geom_sf_text(data = pas_others,
+                 aes(label = NAME), color = "black",
+                 check_overlap = TRUE, size = 2) +
+    geom_sf_text(data = brys,
+                 aes(label = id), color = "black", 
+                 size = 5) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g2 <- ggplot() +
+    geom_sf(data = brys[1, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 1), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 1), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g3 <- ggplot() +
+    geom_sf(data = brys[2, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 2), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 2), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g4 <- ggplot() +
+    geom_sf(data = brys[3, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 3), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 3), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+ggarrange(g1, g2, g3, g4, labels = c("", "1", "2", "3"),
+          font.label = list(size = 12),
+          nrow = 2, ncol = 2)
+
+ggsave(file.path(fg_path, "figureS2_PA.png"), 
+       bg = "white", width = 190, height = 190, 
+       units = "mm", dpi = 500)
+```
+
+### Figure *
+
+Abandoned figure used before.
 
 ```{r}
 library(ggpubr)
@@ -621,11 +1556,11 @@ ggarrange(g_bio4, g_sd, g_sdi, ncol = 3,
           font.label = list(size = 12, color = "black", face = "bold"),
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "figure7_variable_response.png"), 
+ggsave(file.path(fg_path, "figure_variable_response.png"), 
        width = 6.5, height = 3, dpi = 500, bg = "white")
 ```
 
-### Supplementary Figure S1-S3: Response curve of all variables at coarse scale
+### Supplementary Figure S3-S5: Response curve of all variables at coarse scale
 
 ```{r}
 # Types
@@ -824,62 +1759,9 @@ ggsave(file.path(fg_path, "sup_variable_response_c.png"),
        width = 4.3, height = 4, dpi = 500, bg = "white")
 ```
 
-### Figure 8
+### Supplementary Figure S*: Response curve of all variables at fine scale
 
-```{r}
-# Define names
-nms <- c("BIO4", "NDVI seasonality",
-         "Distance to settlements", "Distance to waterbodies",
-         "Vector ruggedness measure (3km)", 
-         "Mean of Contiguity index (Savanna, 3km)", 
-         "Cropland edge density (7km)", "Ratio of savanna (7km)",
-         "Savanna patch density (3km)")
-
-abs_mean <- function(v) mean(abs(v))
-load(file.path(result_path, "runs_fs.rda"))
-var_imp <- do.call(rbind, lapply(runs, function(run) {
-    shap_test <- run$variable_analysis$SHAP$test %>% 
-        summarise(across(all_of(names(.)), abs_mean))
-    names(shap_test) <- nms
-    shap_test
-})); rm(runs)
-
-## Reshape the table
-var_imp <- var_imp %>% 
-    pivot_longer(
-        cols = names(var_imp),
-        names_to = "variable", values_to = "value")
-var_imp <- var_imp %>% 
-    group_by(variable) %>% 
-    summarise(value = mean(value)) %>% 
-    ungroup() %>% arrange(value)
-var_imp <- var_imp %>% 
-    mutate(value = value * 1000) %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp$variable))
-
-ggplot(var_imp, aes(x = variable, y = value)) +
-    geom_bar(fill = "black",
-             stat = "identity", color = "transparent",
-             position="identity") +
-    ylab('mean(|Shapley value|) * 1000') +
-    xlab('Environmental variable') +
-    coord_flip() +
-    theme_pubclean() +
-    theme(text = element_text(size = 10, color = "black"),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8), color = "black"),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top", legend.justification = 'right',
-          strip.text.x = element_text(size = 12, face = "bold")) +
-    guides(fill = guide_legend(nrow = 1))
-
-ggsave(file.path(fg_path, "figure8_var_imp_fine.png"), 
-       width = 5, height = 2, dpi = 500)
-```
-
-### Supplementary Figure S4: Response curve of all variables at fine scale
+Did not use in the manuscript.
 
 ```{r}
 # Define names
@@ -981,706 +1863,3 @@ ggarrange(plotlist = fg_list,
 ggsave(file.path(fg_path, "sup_variable_response_fine.png"), 
        width = 6.5, height = 6.5, dpi = 500, bg = "white")
 ```
-
-### Figure 9
-
-Figure 9 is the landscape connectivity for long-distance migration.
-
-```{r}
-library(stars)
-library(classInt)
-
-# Define colors
-col_habitats <- "#82ba9e"
-col_blocks <- data.frame(
-    id = 1:4,
-    color = c("#fbf65d", "#fe0200", "#c99245", "#43642c"),
-    name_= c("Farmland", "Settlement", "Farmland & settlement",
-             "Mountain peak"))
-
-# Read data
-bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
-habitat_clusters <- read_stars(file.path(cnt_path, "habitat_clusters.tif"))
-habitat_clusters[habitat_clusters == 0] <- NA
-habitat_clusters[!is.na(habitat_clusters)] <- "Habitat cluster"
-
-# Scenario 1
-current_map_s1 <- read_stars(
-    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
-blocks_s1 <- read_stars(
-    file.path(cnt_path, "blocks_s1.tif")) %>% 
-    st_crop(bry)
-blocks_s1[blocks_s1 == 0] <- NA
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.02) & 
-                     values <= quantile(values, 0.98)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.3f,%.3f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = habitat_clusters, 
-               na.action = na.omit, show.legend = FALSE) +
-    scale_fill_manual("", values = col_habitats,
-                      na.translate = FALSE) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent", linewidth = 0.5) +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- read_stars(
-    file.path(cnt_exp_path, "connectivity_scenario2.tif"))
-blocks_s2 <- read_stars(
-    file.path(cnt_path, "blocks_s2.tif")) %>% 
-    st_crop(bry)
-blocks_s2[blocks_s2 == 0] <- NA
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.02) & 
-                     values <= quantile(values, 0.98)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.3f,%.3f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 2\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = habitat_clusters, 
-               na.action = na.omit, show.legend = FALSE) +
-    scale_fill_manual("", values = col_habitats,
-                      na.translate = FALSE) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent", linewidth = 0.5) +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Legend
-current_map_s1 <- read_stars(
-    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
-legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_distiller("Connectivity",
-        palette = "BuPu", breaks = c(0, 0.5, 1), 
-        labels = c("low", "med", "high"), direction = 1) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = habitat_clusters, 
-               na.action = na.omit) +
-    scale_fill_manual("", values = col_habitats,
-                      na.translate = FALSE) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.box = "vertical",
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.margin = margin(0,0,0,0),
-          legend.box.margin = margin(0,0,0,0))
-legend_common <- get_legend(legend_common)
-
-# Combining plots
-plots <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                   g_s2 + theme(legend.position = "none"), 
-                   labels = c("A", "B"),
-                   font.label = list(size = 12),
-                   nrow = 1)
-ggarrange(plots, ggplot() + theme_void(),
-          legend_common, ggplot() + theme_void(), nrow = 4, 
-          heights = c(0.9, -0.01, 0.1, 0.09))
-
-ggsave(file.path(fg_path, "figure9_long_distance_connect.png"), 
-       bg = "white",
-       width = 6.5, height = 4.2, dpi = 500)
-```
-
-### Figure 10
-
-Figure 10 is the main figure for the detected corridors and example path across corridors.
-
-```{r}
-# Main figure
-bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
-habitat_clusters <- read_sf(file.path(data_path, "observations",
-                            "habitat_clusters_aggre.geojson"))
-corridors <- read_sf(file.path(cnt_exp_path, "corridors_s1_simple.geojson"))
-corridors <- st_join(corridors, random_paths)
-
-ggplot() +
-    geom_sf(data = habitat_clusters, aes(fill = "Habitat clusters"),
-            color = "transparent") +
-    geom_sf_text(data = habitat_clusters,
-                 aes(label = cluster), color = "black", 
-                 show_guide = FALSE) +
-    geom_sf(data = corridors, aes(fill = "Corridors"), 
-            color = "transparent") +
-    scale_fill_manual(NULL, values = c(col_habitats, "gray50"),
-                      breaks = c("Habitat clusters", 'Corridors'),
-                      guide = guide_legend(
-                          override.aes = list(linetype = "blank", 
-                                              shape = NA))) +
-    geom_sf(data = random_paths, aes(color = id), linewidth = 0.4) +
-    scale_color_brewer("", palette = "Set1", direction = -1,
-                       guide = "none") +
-    geom_sf_text(data = random_paths,
-                 aes(label = id), color = "black", 
-                 show_guide = FALSE) +
-    geom_sf(data = bry, fill = "transparent", color = "black",
-            linewidth = 0.2) +
-    theme_void() +
-    theme(text = element_text(size = 12),
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.position = "bottom")
-
-ggsave(file.path(fg_path, "figure10_corridors.png"), 
-       bg = "white",
-       width = 3, height = 3, dpi = 500)
-```
-
-
-### Figure 11
-
-Figure 11 is the environmental variable values across the random paths shown in figure 10.
-
-```{r}
-load(file.path(cnt_exp_path, "random_path_statistics.rda"))
-random_paths <- read_sf(
-    file.path(cnt_exp_path, "random_path_within_corridor.shp")) %>% 
-    mutate(id = LETTERS[1:6])
-
-norm_data <- function(s){
-    (s - min(s)) / (max(s) - min(s))
-}
-
-fg_list <- lapply(random_path_statistics, function(each){
-    x_nm <- ifelse(names(each)[1] == "lat", "Latitude", "Longitude")
-    vals <- each
-    if ( x_nm == "Latitude") {
-        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
-            min(vals[vals$variable == "Elevation", "value"])
-        vals[vals$variable == "Elevation", "value"] <- 
-            norm_data(vals[vals$variable == "Elevation", "value"])
-        ggplot() +
-            geom_area(data = vals %>% filter(variable == "Elevation"),
-                      aes(x = lat, y = value, fill = "Elevation"), 
-                      color = "transparent",
-                      show.legend = TRUE) +
-            scale_fill_manual(NULL, values = "grey",
-                              breaks = 'Elevation',
-                              guide = guide_legend(
-                                  override.aes = list(linetype = "blank", 
-                                                      shape = NA))) +
-            geom_line(data = vals %>% filter(variable != "Elevation"), 
-                      aes(x = lat, y = value, color = variable),
-                      linewidth = 0.6) +
-            scale_color_brewer("", palette = "Dark2",
-                               guide = guide_legend(
-                                   override.aes = list(fill = NA))) +
-            scale_y_continuous(
-                "Cropland coverage", 
-                sec.axis = sec_axis(~ . * 1, name = "NDVI")
-            ) + xlab(x_nm) +
-            annotate(geom = "text", x = min(vals[, 1]) - 0.05, y = 0.5, 
-                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
-                     color = "red", size = 2.5, angle = 90) +
-            theme_classic() +
-            theme(legend.position = "top")+
-            theme(text = element_text(size = 10),
-                  legend.position = "bottom")
-    } else {
-        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
-            min(vals[vals$variable == "Elevation", "value"])
-        vals[vals$variable == "Elevation", "value"] <- 
-            norm_data(vals[vals$variable == "Elevation", "value"])
-            
-        ggplot() +
-            geom_area(data = vals %>% filter(variable == "Elevation"),
-                      aes(x = lon, y = value, fill = "Elevation"), 
-                      color = "transparent",
-                      show.legend = TRUE) +
-            scale_fill_manual(NULL, values = "grey",
-                              breaks = 'Elevation',
-                              guide = guide_legend(
-                                  override.aes = list(linetype = "blank", 
-                                                      shape = NA))) +
-            geom_line(data = vals %>% filter(variable != "Elevation"), 
-                      aes(x = lon, y = value, color = variable),
-                      linewidth = 0.6) +
-            scale_color_brewer("", palette = "Dark2",
-                               guide = guide_legend(
-                                   override.aes = list(fill = NA))) +
-            scale_y_continuous(
-                "Cropland coverage", 
-                sec.axis = sec_axis(~ . * 1, name = "NDVI")) + xlab(x_nm) +
-            annotate(geom = "text", x = min(vals[, 1]) - 0.03, y = 0.5, 
-                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
-                     color = "red", size = 2.5, angle = 90) +
-            theme_classic() +
-            theme(legend.position = "top") +
-            theme(text = element_text(size = 10),
-                  legend.position = "bottom")
-    }
-})
-
-ggarrange(plotlist = fg_list, nrow = 3, ncol = 2,
-          labels = LETTERS[1:6], font.label = list(size = 12),
-          common.legend = TRUE, legend = "top")
-
-ggsave(file.path(fg_path, "figure11_path_analysis.png"), 
-       bg = "white",
-       width = 6.5, height = 6.2, dpi = 500)
-```
-
-### Figure 12
-
-Figure 12 shows the simulated landscape connectivity for short-distance move.
-
-#### Figure 12-1 
-
-The figure for habitat cluster 1.
-
-```{r}
-library(classInt)
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c1 <- pas %>% filter(cluster == 1)
-bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c1 <- read_sf(file.path(cls_path, "hotspots_conservation.shp"))
-
-# Scenario 1
-current_map_s1 <- read_stars(
-    file.path(cls_path, "c1_connectivity_scenario1.tif"))
-blocks_s1 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
-    st_crop(bry)
-blocks_s1[blocks_s1 == 0] <- NA
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- read_stars(
-    file.path(cls_path, "c1_connectivity_scenario2.tif"))
-blocks_s2 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
-    st_crop(bry)
-blocks_s2[blocks_s2 == 0] <- NA
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c1, color = "blue", 
-            fill = "transparent", linewidth = 0.8) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c1 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("1.A", "1.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-```
-
-#### Figure 12-2
-
-The figure for habitat Cluster 2.
-
-```{r}
-cls_path <- file.path(cnt_exp_path, "cluster_2")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c2 <- pas %>% filter(cluster == 2)
-bry <- st_union(pas_c2) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c2 <- read_sf(file.path(cls_path, "hotspots_conservation_c2.shp"))
-
-# Scenario 1
-current_map_s1 <- read_stars(
-    file.path(cls_path, "c2_connectivity_scenario1.tif"))
-blocks_s1 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
-    st_crop(bry)
-blocks_s1[blocks_s1 == 0] <- NA
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- read_stars(
-    file.path(cls_path, "c2_connectivity_scenario2.tif"))
-blocks_s2 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
-    st_crop(bry)
-blocks_s2[blocks_s2 == 0] <- NA
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c2, color = "blue", 
-            fill = "transparent", linewidth = 0.8) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c2 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("2.A", "2.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-```
-
-#### Figure 12-3
-
-The figure for habitat Cluster 3.
-
-```{r}
-cls_path <- file.path(cnt_exp_path, "cluster_3")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c3 <- pas %>% filter(cluster == 3)
-bry <- st_union(pas_c3) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c3 <- read_sf(file.path(cls_path, "hotspots_conservation_c3.shp"))
-
-# Scenario 1
-current_map_s1 <- read_stars(
-    file.path(cls_path, "c3_connectivity_scenario1.tif"))
-blocks_s1 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s1.tif")) %>% 
-    st_crop(bry)
-blocks_s1[blocks_s1 == 0] <- NA
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- read_stars(
-    file.path(cls_path, "c3_connectivity_scenario2.tif"))
-blocks_s2 <- read_stars(
-    file.path(cnt_path, "blocks_spath_s2.tif")) %>% 
-    st_crop(bry)
-blocks_s2[blocks_s2 == 0] <- NA
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:4,
-        labels = c("Farmland", "Settlement", 
-                   "Farmland & settlement", "Mountain peaks"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c3, color = "blue", 
-            fill = "transparent", linewidth = 0.8) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c3 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("3.A", "3.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-```
-
-#### Plot together
-
-```{r}
-# Make the common legend
-current_map_s1 <- read_stars(
-    file.path(cls_path, "c3_connectivity_scenario1.tif"))
-legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_distiller("Connectivity",
-        palette = "BuPu", breaks = c(0, 0.5, 1), 
-        labels = c("low", "med", "high"), direction = 1) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c3, aes(color = "Protected areas"), 
-            fill = "transparent") +
-    geom_sf(data = bry, aes(color = "Critical regions"), 
-            fill = "transparent") +
-    scale_color_manual(NULL, values = c("gray40", "blue"),
-                      breaks = c('Protected areas', "Critical regions")) +
-    theme(text = element_text(size = 10),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.box = "vertical",
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.margin = margin(0,0,0,0),
-          legend.box.margin = margin(0,0,0,0))
-legend_common <- get_legend(legend_common)
-
-ggarrange(ggarrange(plot_c1, plot_c2, 
-                    plot_c3, ncol = 3), 
-          ggplot() + theme_void(),
-          legend_common, ggplot() + theme_void(),
-          nrow = 4, heights = c(3, -0.3, 1, -0.2))
-
-ggsave(file.path(fg_path, "figure12_clusters_condition.png"), 
-       bg = "white",
-       width = 6.5, height = 6, dpi = 500)
-```
-

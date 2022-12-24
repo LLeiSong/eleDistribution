@@ -394,7 +394,7 @@ pas <- st_join(pas, habitat_clusters) %>%
 write_sf(pas, file.path(cnt_path, "pas.geojson"))
 ```
 
-Randomly generate one 5km habitat point within each PA, and then connect them by graph theory (circuitscape). Run this for 100 iteration to target the hotpots.
+Randomly generate one 5km habitat point within each PA, and then connect them by graph theory (circuitscape). Run this for 50 iteration to target the hotpots.
 
 ```
 Rscript scripts/circt_points_cli.R -c no_of_cluster -n 50
