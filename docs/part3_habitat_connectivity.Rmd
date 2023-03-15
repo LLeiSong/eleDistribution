@@ -82,81 +82,12 @@ Based on the habitat clusters: north, southwest, southeast. Then:
 
 #### Movement masks
 
-There are not many natural barriers for African elephants to move around savannas because elephant can adapt to a wide range of climate and they can swim or hike. Because elephants are good swimmer and they can swim as far as over 20 miles, so we did not include water as barriers. However, previous studies argued that elephants would avoid deep mountains if possible due to multiple reasons, so we include mountains as natural barriers. And we classify the mountains by the average height and slope.
-
-Natural barriers
-
-- Mountains (such as East African Rift, Eastern Arc mountains) (done)
+There are not many natural barriers for African elephants to move around savannas because elephant can adapt to a wide range of climate and they can swim or hike. Because elephants are good swimmer and they can swim as far as over 20 miles, so we did not include water as barriers.
 
 Anthropological barriers
 
 - Farmlands (done)
 - Dense settlements (done)
-
-#### Prepare ancillary data
-
-First, use the DEM map at 1 km to extract the high mountains:
-
-- Make a focal mean with window size of 41.
-- Use elevation to subtract the focal mean.
-- Only keep values higher than 500 as mountains that could be a barriers for elephants.
-
-```{r}
-library(sf)
-
-deep_water <- read_sf(file.path(vct_path, "deep_water.geojson"))
-elevation <- rast(file.path(rst_path, "dsm_tanzania_1km.tif"))
-
-deep_water <- rasterize(vect(deep_water), elevation)
-elevation <- mask(elevation, deep_water, inverse = TRUE)
-ele_mean <- focal(elevation, w = 41, fun = "mean", na.rm = TRUE)
-mnt_ele <- elevation - ele_mean
-# the threshold is selected according to literature.
-# assume the elephants have to climb some mountains if necessary.
-mountains <- mnt_ele >= 300
-mountains[mountains == 0] <- NA
-
-writeRaster(mountains, file.path(cnt_path, "mountains.tif"))
-
-# Mask the suitability map
-suitability <- rast(
-    file.path(result_path, "landscape_utility_1km_integrated.tif"),
-    lyrs = 1)
-
-mountains <- mask(mountains, suitability)
-suitability <- mask(suitability, mountains, inverse = TRUE,
-                    updatevalue = 0)
-writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block.tif'))
-
-# Write out asc file
-suitability[is.na(suitability)] <- -9999
-
-writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block.asc'),
-            wopt = list(NAflag = -9999))
-
-# Short-path, double the mountain height
-# assume elephants don't mind hiking for a short path.
-mountains <- mnt_ele >= 600
-mountains[mountains == 0] <- NA
-
-writeRaster(mountains, file.path(cnt_path, "mountains_spath.tif"))
-
-# Mask the suitability map
-suitability <- rast(
-    file.path(result_path, "landscape_utility_1km_integrated.tif"),
-    lyrs = 1)
-
-mountains <- mask(mountains, suitability)
-suitability <- mask(suitability, mountains, inverse = TRUE,
-                    updatevalue = 0)
-writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
-
-# Write out asc file
-suitability[is.na(suitability)] <- -9999
-
-writeRaster(suitability, file.path(cnt_path, 'suitability_mnt_block_spath.asc'),
-            wopt = list(NAflag = -9999))
-```
 
 Then get farmland and savanna proportion and rasterize mountain elevation.
 
@@ -213,11 +144,6 @@ settlement_density <- pbmclapply(output_tiles, function(fname) {
 settlement_density <- vrt(unlist(settlement_density))
 writeRaster(settlement_density, 
             file.path("data/connectivity", "settlement_density.tif"))
-
-# moving window sum
-settlement_density <- focal(settlement_density, w = 3, fun = sum)
-writeRaster(settlement_density, 
-            file.path("data/connectivity", "settlement_density_3.tif"))
 ```
 
 #### Prepare connectivity modeling data
@@ -225,17 +151,10 @@ writeRaster(settlement_density,
 First, increase the suitability of savanna as a main habitat, then:
 
 - Run a base model
-- Add high mountains as barriers (different levels)
 - Add farmlands and settlements barriers (different levels)
 
 ```{r}
 # Make spatial files
-# Habitat clusters
-habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
-habitat_clusters[habitat_clusters == 0] <- -9999
-writeRaster(habitat_clusters, file.path(cnt_path, 'habitat_clusters.asc'),
-            wopt = list(NAflag = -9999))
-
 # 1. Make the original suitability under current condition as reference
 suitability <- rast(
     file.path(result_path, "landscape_utility_1km_integrated.tif"),
@@ -244,19 +163,26 @@ suitability[is.na(suitability)] <- -9999
 writeRaster(suitability, file.path(cnt_path, 'suitability_original.asc'),
             wopt = list(NAflag = -9999))
 
-# 2. Suitability with mountains as barriers was generated above
+# Habitat clusters
+habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters[habitat_clusters == 0] <- -9999
+writeRaster(habitat_clusters, 
+            file.path(cnt_path, 'habitat_clusters_original.asc'),
+            wopt = list(NAflag = -9999))
 
-# 3. Suitability with settlement and cropland as barriers
-settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
-settlement <- settlement > 400 # a small town
+# 2. Suitability with settlement and cropland as barriers
+settlement <- rast(file.path(cnt_path, "settlement_density.tif"))
+settlement <- settlement > 400 # big town
 cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
 # Very conservative. 
 # Assume elephants would take the risk if there is no choice.
-cropland <- cropland > 0.9 
+cropland <- cropland > 0.8 
 msk <- (settlement + cropland) >= 1
 msk[msk == 0] <- NA
 
-suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"),
+    lyrs = 1)
 suitability <- mask(suitability, msk, inverse = TRUE,
                     updatevalue = 0)
 writeRaster(suitability, file.path(cnt_path, 'suitability_human_block.tif'))
@@ -266,30 +192,19 @@ suitability[is.na(suitability)] <- -9999
 writeRaster(suitability, file.path(cnt_path, 'suitability_human_block.asc'),
             wopt = list(NAflag = -9999))
 
-# Just settlements
-settlement[settlement == 0] <- NA
-suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
-suitability <- mask(suitability, settlement, inverse = TRUE,
-                    updatevalue = 0)
-writeRaster(suitability, file.path(cnt_path, 'suitability_slm_block.tif'))
+# Habitat clusters
+habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters <- mask(habitat_clusters, msk, inverse = TRUE,
+                         updatevalue = 0)
+habitat_clusters[habitat_clusters == 0] <- -9999
+writeRaster(habitat_clusters, 
+            file.path(cnt_path, 'habitat_clusters_human_block.asc'),
+            wopt = list(NAflag = -9999))
 
-# Short-path
-suitability <- rast(file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
-suitability <- mask(suitability, msk, inverse = TRUE,
-                    updatevalue = 0)
-writeRaster(
-    suitability, file.path(cnt_path, 'suitability_human_block_spath.tif'))
-
-# Write asc
-suitability[is.na(suitability)] <- -9999
-writeRaster(
-    suitability, file.path(cnt_path, 'suitability_human_block_spath.asc'),
-    wopt = list(NAflag = -9999))
-
-# 4. Suitability with settlement and all cropland as barriers
+# 3. Suitability with settlement and all cropland as barriers
 # Just consider cropland
-settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
-settlement <- settlement > 200 # a small town
+settlement <- rast(file.path(cnt_path, "settlement_density.tif"))
+settlement <- settlement > 200 # a future big town
 cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
 # Very conservative. 
 # Assume elephants would take the risk if there is no choice.
@@ -297,7 +212,9 @@ cropland <- cropland > 0.2
 msk <- (settlement + cropland) >= 1
 msk[msk == 0] <- NA
 
-suitability <- rast(file.path(cnt_path, 'suitability_mnt_block.tif'))
+suitability <- rast(
+    file.path(result_path, "landscape_utility_1km_integrated.tif"),
+    lyrs = 1)
 suitability <- mask(suitability, msk, inverse = TRUE,
                     updatevalue = 0)
 writeRaster(suitability, 
@@ -309,17 +226,13 @@ writeRaster(suitability,
             file.path(cnt_path, 'suitability_human_block_complete.asc'),
             wopt = list(NAflag = -9999))
 
-# Short path
-suitability <- rast(file.path(cnt_path, 'suitability_mnt_block_spath.tif'))
-suitability <- mask(suitability, msk, inverse = TRUE,
-                    updatevalue = 0)
-writeRaster(suitability, 
-            file.path(cnt_path, 'tability_human_block_complete_spath.tif'))
-
-# Write asc
-suitability[is.na(suitability)] <- -9999
-writeRaster(suitability, 
-            file.path(cnt_path, 'suitability_human_block_complete_spath.asc'),
+# Habitat clusters
+habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters <- mask(habitat_clusters, msk, inverse = TRUE,
+                         updatevalue = 0)
+habitat_clusters[habitat_clusters == 0] <- -9999
+writeRaster(habitat_clusters, 
+            file.path(cnt_path, 'habitat_clusters_human_block_complete.asc'),
             wopt = list(NAflag = -9999))
 ```
 
@@ -361,7 +274,7 @@ walk(fnames, function(fn) {
     config$`Logging Options`$log_file <-
         file.path(cnt_exp_path, sprintf("%s.log", nm))
     config$`Options for pairwise and one-to-all and all-to-one modes`$point_file <-
-        file.path(cnt_path, 'habitat_clusters.asc')
+        file.path(cnt_path, sprintf('habitat_clusters_%s.asc', nm))
     config$`Habitat raster or graph`$habitat_file <- fn
     fname <- file.path(cnt_path, sprintf("%s.ini", nm))
     write.ini(config, fname)
@@ -412,7 +325,8 @@ norm_rast <- function(s){
 }
 
 # Read habitat clusters and accumulated current maps
-habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.asc"))
+habitat_clusters <- rast(file.path(
+    cnt_path, "habitat_clusters_human_block.asc"))
 curmap_block <- rast(file.path(cnt_exp_path, "human_block_cum_curmap.asc"))
 curmap_block <- mask(curmap_block, habitat_clusters, 
                      inverse = TRUE, updatevalue = NA)
@@ -420,6 +334,8 @@ curmap_block <- norm_rast(curmap_block)
 writeRaster(curmap_block, 
             file.path(cnt_exp_path, "connectivity_scenario1.tif"))
 
+habitat_clusters <- rast(file.path(
+    cnt_path, "habitat_clusters_human_block_complete.asc"))
 curmap_block_complete <- rast(
     file.path(cnt_exp_path, "human_block_complete_max_curmap.asc"))
 curmap_block_complete <- mask(curmap_block_complete, habitat_clusters, 
@@ -429,18 +345,14 @@ writeRaster(curmap_block_complete,
             file.path(cnt_exp_path, "connectivity_scenario2.tif"))
 
 ## Read farmlands and settlements under different scenarios
-settlement <- rast(file.path(cnt_path, "settlement_density_3.tif"))
+settlement <- rast(file.path(cnt_path, "settlement_density.tif"))
 cropland <- rast(file.path(cnt_path, "cropland_ratio.tif"))
-mountains <- rast(file.path(cnt_path, "mountains.tif"))
-mountains[mountains == 1] <- 4
 
 # Scenario 1
-cropland_s1 <- cropland > 0.9
+cropland_s1 <- cropland > 0.8
 settlement_s1 <- settlement > 400
 settlement_s1[isTRUE(settlement_s1)] <- 2
 humans_s1 <- sum(cropland_s1, settlement_s1, na.rm = TRUE)
-humans_s1 <- mask(humans_s1, mask(mountains, humans_s1), 
-                  inverse = TRUE, updatevalue = 4)
 writeRaster(humans_s1, file.path(cnt_path, "blocks_s1.tif"))
 
 # Scenario 2
@@ -448,44 +360,100 @@ cropland_s2 <- cropland > 0.2
 settlement_s2 <- settlement > 200
 settlement_s2[isTRUE(settlement_s2)] <- 2
 humans_s2 <- sum(cropland_s2, settlement_s2, na.rm = TRUE)
-humans_s2 <- mask(humans_s2, mask(mountains, humans_s2), 
-                  inverse = TRUE, updatevalue = 4)
 writeRaster(humans_s2, file.path(cnt_path, "blocks_s2.tif"))
 ```
 
-#### Existing corridors between habitat clusters
+#### Potential corridors (current and future) between habitat clusters
+
+Get the "least-cost-path" for each case to compare the level of difficulty for each potential path.
 
 ```{r}
+library(gdistance)
+
+# Read the coordinates and "cost" to calculate the LSP
+link_points <- read_sf(file.path(cnt_exp_path, "link_points.shp"))
+coords <- cbind(link_points %>% st_drop_geometry(),
+                st_coordinates(link_points))
+connt_sca1 <- rast(file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+connt_sca1[is.na(connt_sca1)] <- 0
+tr <- transition(raster(connt_sca1), transitionFunction = mean, directions = 16)
+
+pairs <- list(c(1, 2), c(5, 10), c(3, 4), c(6, 7), c(8, 9))
+names(pairs) <- c("cluster13", "cluster23_1", "cluster23_2", 
+                  "cluster12_1", "cluster12_2")
+lcps_sca1 <- do.call(rbind, lapply(pairs, function(pair){
+    coords_pair <- as.matrix(coords[pair, c("X", "Y")])
+    
+    lcp <- shortestPath(
+        tr, coords_pair[1, ], coords_pair[2, ], 
+        output = "SpatialLines")
+    st_as_sf(lcp) %>% mutate(path = names(pair))
+}))
+
+connt_sca2 <- rast(file.path(cnt_exp_path, "connectivity_scenario2.tif"))
+connt_sca2[is.na(connt_sca2)] <- 0
+tr <- transition(raster(connt_sca2), transitionFunction = mean, directions = 16)
+
+pairs <- list(c(5, 10), c(3, 4), c(6, 7), c(8, 9))
+names(pairs) <- c("cluster23_1", "cluster23_2", 
+                  "cluster12_1", "cluster12_2")
+lcps_sca2 <- do.call(rbind, lapply(pairs, function(pair){
+    coords_pair <- as.matrix(coords[pair, c("X", "Y")])
+    
+    lcp <- shortestPath(
+        tr, coords_pair[1, ], coords_pair[2, ], 
+        output = "SpatialLines")
+    st_as_sf(lcp) %>% mutate(path = names(pair))
+}))
+
+fname <- file.path(cnt_exp_path, "potential_corridors_scenario1.geojson")
+write_sf(lcps_sca1, fname)
+fname <- file.path(cnt_exp_path, "potential_corridors_scenario2.geojson")
+write_sf(lcps_sca2, fname)
+
+# Conservation suggestions
+## Protected areas
 library(classInt)
 library(rmapshaper)
+current_map_s2 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario2.tif"))
+# Get cuts
+values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.02) & 
+                     values <= quantile(values, 0.98)]
+breaks_s2 <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+corridor_s2 <- current_map_s2 > breaks_s2$brks[5]
+corridor_s2[corridor_s2 == 0] <- NA
+corridor_s2 <- st_as_sf(corridor_s2, merge = TRUE, na.rm = TRUE) %>% 
+    mutate(area = st_area(.) %>% units::set_units("km2")) %>% 
+    filter(area > 500 %>% units::set_units("km2")) %>% 
+    select(-area) %>% 
+    ms_simplify(keep = 0.1) %>% st_make_valid()
 
 current_map_s1 <- read_stars(
     file.path(cnt_exp_path, "connectivity_scenario1.tif"))
-
 # Get cuts
 values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
 values <- values[values >= quantile(values, 0.02) & 
                      values <= quantile(values, 0.98)]
 breaks_s1 <- classIntervals(round(values, 3), 
                          n = 7, style = "equal")
-
 corridor_s1 <- current_map_s1 > breaks_s1$brks[5]
 corridor_s1[corridor_s1 == 0] <- NA
-
 corridor_s1 <- st_as_sf(corridor_s1, merge = TRUE, na.rm = TRUE) %>% 
     mutate(area = st_area(.) %>% units::set_units("km2")) %>% 
     filter(area > 500 %>% units::set_units("km2")) %>% 
     select(-area) %>% 
-    ms_simplify(keep = 0.2) %>% st_make_valid()
+    ms_simplify(keep = 0.1) %>% st_make_valid()
 
-write_sf(corridor_s1, file.path(cnt_exp_path, "corridors_s1.geojson"))
+corridor_s1 <- corridor_s1 %>% mutate(type = "Community based") %>% 
+            select(type) %>% mutate(id = 1:nrow(.))
+write_sf(corridor_s1, file.path(cnt_exp_path, "community_based.geojson"))
 
-# After Human edits
-area_thresh <- units::set_units(1000, km^2)
-corridor_s1 <- read_sf(file.path(cnt_exp_path, "corridors_s1.geojson")) %>% 
-    smoothr::fill_holes(threshold = area_thresh) %>% 
-    ms_simplify(keep = 0.5)
-write_sf(corridor_s1, file.path(cnt_exp_path, "corridors_s1_simple.geojson"))
+corridor_s2 <- corridor_s2 %>% mutate(type = "Protected area") %>% 
+    select(type) %>% mutate(id = 1:nrow(.))
+write_sf(corridor_s2, file.path(cnt_exp_path, "protected_area.geojson"))
 ```
 
 #### Path analysis for the corridors between habitat clusters
@@ -493,6 +461,7 @@ write_sf(corridor_s1, file.path(cnt_exp_path, "corridors_s1_simple.geojson"))
 ```{r}
 library(ggridges)
 library(tidyr)
+select <- dplyr::select
 
 # NDVI dry season, NDVI wet season, elevation
 elevation <- rast(file.path(rst_path, "dsm_tanzania_1km.tif"))
@@ -508,13 +477,16 @@ rm(elevation, ndvi_dry, ndvi_wet, cropland_ratio)
 names(vars) <- c("Elevation", "NDVI (dry season)", 
                  "NDVI (wet season)", "Cropland coverage")
 
-random_paths <- read_sf(
-    file.path(cnt_exp_path, "random_path_within_corridor.shp"))
-random_path_statistics <- lapply(random_paths$id, function(index){
+lcps_sca1 <- read_sf(
+    file.path(cnt_exp_path, "potential_corridors_scenario1.geojson"))
+lcps_sca1 <- lcps_sca1 %>% 
+    mutate(id = 1:nrow(.))
+
+lcps_sca1_statistics <- lapply(lcps_sca1$id, function(index){
     if (index %in% 1:3){
         terra::extract(
             vars, 
-            random_paths %>% filter(id == index) %>% vect(),
+            lcps_sca1 %>% filter(id == index) %>% vect(),
             xy = TRUE) %>% 
             arrange(-y) %>% mutate(lat = y) %>% 
             mutate(id = 1:nrow(.)) %>% 
@@ -526,7 +498,7 @@ random_path_statistics <- lapply(random_paths$id, function(index){
     } else {
         terra::extract(
             vars, 
-            random_paths %>% filter(id == index) %>% vect(),
+            lcps_sca1 %>% filter(id == index) %>% vect(),
             xy = TRUE) %>% 
             arrange(-x) %>% mutate(lon = x) %>% 
             mutate(id = 1:nrow(.)) %>% 
@@ -538,8 +510,44 @@ random_path_statistics <- lapply(random_paths$id, function(index){
     }
 })
 
-save(random_path_statistics, 
-     file = file.path(cnt_exp_path, "random_path_statistics.rda"))
+save(lcps_sca1_statistics, 
+     file = file.path(cnt_exp_path, "corridors_sca1_statistics.rda"))
+
+lcps_sca2 <- read_sf(
+    file.path(cnt_exp_path, "potential_corridors_scenario2.geojson"))
+lcps_sca2 <- lcps_sca2 %>% 
+    mutate(id = 1:nrow(.))
+
+lcps_sca2_statistics <- lapply(lcps_sca2$id, function(index){
+    if (index %in% 1:2){
+        terra::extract(
+            vars, 
+            lcps_sca2 %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-y) %>% mutate(lat = y) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lat, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    } else {
+        terra::extract(
+            vars, 
+            lcps_sca2 %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-x) %>% mutate(lon = x) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lon, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    }
+})
+
+save(lcps_sca2_statistics, 
+     file = file.path(cnt_exp_path, "corridors_sca2_statistics.rda"))
 ```
 
 ### Short-distance connectivity within each habitat cluster

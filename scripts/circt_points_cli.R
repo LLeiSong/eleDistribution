@@ -45,7 +45,7 @@ cluster_msk <- pas %>% filter(cluster == cluster_id) %>%
     st_union() %>% vect() %>% ext()
 
 # Different conditions
-types <- c("mnt_block", "human_block", "human_block_complete")
+types <- c("human_block", "human_block_complete")
 walk(1:length(types), 
      function(type_index) {
          type <- types[type_index]
@@ -58,7 +58,7 @@ walk(1:length(types),
          
          # Subset suitability
          suit_map <- file.path(
-             cnt_path, sprintf("suitability_%s_spath.asc", type)) %>% 
+             cnt_path, sprintf("suitability_%s.asc", type)) %>% 
              rast() %>% 
              crop(cluster_msk)
          suit_map[is.na(suit_map)] <- -9999
@@ -117,7 +117,7 @@ walk(1:length(types),
          
          # Gather results
          cum_raster <- do.call(c, cum_rasters) %>% 
-             sum(na.rm = TRUE)
+             mean(na.rm = TRUE)
          fname <- file.path(
              out_dir, sprintf("cum_curmap_%s_cluster%s.tif", type, cluster_id))
          writeRaster(cum_raster, fname)
