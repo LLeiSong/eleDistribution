@@ -386,23 +386,23 @@ vars_nms <- data.frame(
                   "Distance to primary roads/railways",
                   "VRM (3km)", "VRM (5km)", "VRM (7km)",
                   "ED of Cropland (3km)", 
-                  "AREA_MN of Savanna (3km)",
-                  "CONTIG_MN of Savanna (3km)", 
-                  "PD of Savanna (3km)",
-                  "Ratio of cropland (3km)",
-                  "Ratio of savanna (3km)",
+                  "AREA_MN of open habitat (3km)",
+                  "CONTIG_MN of open habitat (3km)", 
+                  "PD of open habitat (3km)",
+                  "Coverage of cropland (3km)",
+                  "Coverage of open habitat (3km)",
                   "ED of Cropland (5km)", 
-                  "AREA_MN of Savanna (5km)",
-                  "CONTIG_MN of Savanna (5km)", 
-                  "PD of Savanna (5km)",
-                  "Ratio of cropland (5km)",
-                  "Ratio of savanna (5km)",
+                  "AREA_MN of open habitat (5km)",
+                  "CONTIG_MN of open habitat (5km)", 
+                  "PD of open habitat (5km)",
+                  "Coverage of cropland (5km)",
+                  "Coverage of open habitat (5km)",
                   "ED of Cropland (7km)", 
-                  "AREA_MN of Savanna (7km)",
-                  "CONTIG_MN of Savanna (7km)", 
-                  "PD of Savanna (7km)",
-                  "Ratio of cropland (7km)",
-                  "Ratio of savanna (7km)"))
+                  "AREA_MN of open habitat (7km)",
+                  "CONTIG_MN of open habitat (7km)", 
+                  "PD of open habitat (7km)",
+                  "Coverage of cropland (7km)",
+                  "Coverage of open habitat (7km)"))
 # Compare the value distribution of each variable
 nms <- names(vars_range)[-c(4:9)]
 index_log <- c(1:3, 9, 12, 15, 18, 21, 24)
@@ -438,7 +438,7 @@ fg_list <- lapply(1:length(nms), function(n){
     values <- values %>% filter(x >= min_tail & x <= max_tail)
     
     if (n %in% index_log) {
-        ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
+        g <- ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
             geom_histogram(aes(fill = type), 
                            color = "white", alpha = 0.6,
                            position="identity") +
@@ -448,17 +448,18 @@ fg_list <- lapply(1:length(nms), function(n){
             scale_color_brewer("Data type", palette = "Set1") +
             xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
             ylab("Density") +
-            annotate("text", x = min(values$x), y = 1, 
+            annotate("text", x = min(values$x), y = 0.9, 
                       label = sprintf("K-S Distance: %s", 
                                       round(ks_result$statistic, 2)),
                      hjust = 0, vjust = 1, size = 3) +
             theme_classic() +
-            theme(text = element_text(size = 9),
-                  axis.title = element_text(size = 9),
-                  axis.text = element_text(size = 9),
+            theme(text = element_text(size = 8),
+                  axis.title = element_text(size = 8),
+                  axis.text = element_text(size = 8),
+                  legend.text = element_text(size = 10),
                   plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
     } else {
-        ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
+        g <- ggplot(values, aes(x = x, y = after_stat(ndensity))) + 
             geom_histogram(aes(fill = type), 
                            color = "white", alpha = 0.6,
                            position="identity") +
@@ -470,15 +471,24 @@ fg_list <- lapply(1:length(nms), function(n){
             xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
             ylab("Density") +
             annotate("text", 
-                     x = 0, y = 1, 
+                     x = 0, y = 0.9, 
                      label = sprintf("K-S Distance: %s", 
                                      round(ks_result$statistic, 2)),
                      hjust = 0, size = 3) +
             theme_classic() +
-            theme(text = element_text(size = 9),
-                  axis.title = element_text(size = 9),
-                  axis.text = element_text(size = 9),
+            theme(text = element_text(size = 8),
+                  axis.title = element_text(size = 8),
+                  axis.text = element_text(size = 8),
+                  legend.text = element_text(size = 10),
+                  legend.title = element_text(size = 10),
                   plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
+    }
+    
+    if (nm_var %in% c("ED of Cropland (3km)", "ED of Cropland (5km)",
+                      "AREA_MN of open habitat (3km)")) {
+        g + xlim(seq(0, 100, 25))
+    } else {
+        g
     }
 })
 
@@ -524,14 +534,16 @@ dist_fg_list <- lapply(names(vars_range)[c(4:9)], function(nm_var){
         xlab(vars_nms %>% filter(name == nm_var) %>% pull(full_name)) + 
         ylab("Density") +
         annotate("text", 
-                 x = 0, y = 1, 
+                 x = min(values$x), y = 0.9, 
                  label = sprintf("K-S Distance: %s", 
                                  round(ks_result$statistic, 2)),
                  hjust = 0, size = 3) +
         theme_classic() +
-        theme(text = element_text(size = 9),
-              axis.title = element_text(size = 9),
-              axis.text = element_text(size = 10),
+        theme(text = element_text(size = 8),
+              axis.title = element_text(size = 8),
+              axis.text = element_text(size = 8),
+              legend.text = element_text(size = 10),
+              legend.title = element_text(size = 10),
               plot.margin = unit(c(0.2, 0.3, 0.1, 0.1), "cm"))
 
 })

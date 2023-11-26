@@ -292,7 +292,7 @@ modeling_cs <- function(params,
         pred <- run$prediction
         thred <- run$eval_test$pb_evaluation$TSS$`Recommended threshold`
         pred <- pred %>% mutate(prediction = ifelse(prediction >= thred, 1, 0))
-        pts_to_eval <- st_extract(pred, at = occ_thin_10fds[[n]]) %>% 
+        pts_to_eval <- st_extract(pred, at = occ_groups[[n]]) %>% 
             st_drop_geometry()
         sum(pts_to_eval$prediction == 1) / nrow(pts_to_eval)
     })

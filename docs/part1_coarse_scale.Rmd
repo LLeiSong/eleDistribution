@@ -1237,8 +1237,10 @@ nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)),
          "Road density", "River density", "Settlement density",
          "Surface roughness", "Patch density", "Patch richness density",
          "Shannon's diversity index", "Cropland edge density", 
-         "Tree edge density", "Contiguity index distribution (Savanna)", 
-         "Savanna patch density", "Ratio of Savanna", "Ratio of water")
+         "Edge density of closed canopy habitat", 
+         "Mean of Contiguity index (open habitat)", 
+         "Patch density (open habitat)", "Coverage of open habitat", 
+         "Coverage of waterbodies")
 
 abs_mean <- function(v) mean(abs(v))
 var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){

@@ -89,7 +89,7 @@ Anthropological barriers
 - Farmlands (done)
 - Dense settlements (done)
 
-Then get farmland and savanna proportion and rasterize mountain elevation.
+Then get farmland and settlement coverage layer.
 
 ```{r}
 # Farmland and savanna
@@ -99,7 +99,7 @@ cropland <- subset(vars, "cropland_ratio_3")
 writeRaster(cropland, file.path(cnt_path, "cropland_ratio.tif"))
 ```
 
-The get the settlement density with a moving window 3 by 3.
+The get the settlement density.
 
 ```{r}
 # Cut the whole image to tiles
@@ -361,6 +361,17 @@ settlement_s2 <- settlement > 200
 settlement_s2[isTRUE(settlement_s2)] <- 2
 humans_s2 <- sum(cropland_s2, settlement_s2, na.rm = TRUE)
 writeRaster(humans_s2, file.path(cnt_path, "blocks_s2.tif"))
+
+# No barriers
+habitat_clusters <- rast(file.path(
+    cnt_path, "habitat_clusters_original.asc"))
+curmap_original <- rast(
+    file.path(cnt_exp_path, "original_max_curmap.asc"))
+curmap_original <- mask(curmap_original, habitat_clusters, 
+                        inverse = TRUE, updatevalue = NA)
+curmap_original <- norm_rast(curmap_original)
+writeRaster(curmap_original, 
+            file.path(cnt_exp_path, "connectivity_no_barriers.tif"))
 ```
 
 #### Potential corridors (current and future) between habitat clusters
@@ -606,6 +617,15 @@ curmap_block_complete_s1 <- mask(curmap_block_complete_s1, bry)
 curmap_block_complete_s1 <- norm_rast(curmap_block_complete_s1)
 writeRaster(curmap_block_complete_s1, 
             file.path(cls_path, "c1_connectivity_scenario2.tif"))
+
+# No barriers
+curmap_original_s1 <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster1.tif"))
+curmap_original_s1 <- mask(curmap_original_s1, bry)
+curmap_original_s1 <- norm_rast(curmap_original_s1)
+writeRaster(curmap_original_s1, 
+            file.path(cls_path, "c1_connectivity_no_barriers.tif"))
 ```
 
 #### Habitat cluster No.2
@@ -634,6 +654,15 @@ curmap_block_complete_s2 <- mask(curmap_block_complete_s2, bry)
 curmap_block_complete_s2 <- norm_rast(curmap_block_complete_s2)
 writeRaster(curmap_block_complete_s2, 
             file.path(cls_path, "c2_connectivity_scenario2.tif"))
+
+# No barriers
+curmap_original_s2 <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster2.tif"))
+curmap_original_s2 <- mask(curmap_original_s2, bry)
+curmap_original_s2 <- norm_rast(curmap_original_s2)
+writeRaster(curmap_original_s2, 
+            file.path(cls_path, "c2_connectivity_no_barriers.tif"))
 ```
 
 #### Habitat cluster No.3
@@ -662,4 +691,13 @@ curmap_block_complete_s3 <- mask(curmap_block_complete_s3, bry)
 curmap_block_complete_s3 <- norm_rast(curmap_block_complete_s3)
 writeRaster(curmap_block_complete_s3, 
             file.path(cls_path, "c3_connectivity_scenario2.tif"))
+
+# No barriers
+curmap_original_s3 <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster3.tif"))
+curmap_original_s3 <- mask(curmap_original_s3, bry)
+curmap_original_s3 <- norm_rast(curmap_original_s3)
+writeRaster(curmap_original_s3, 
+            file.path(cls_path, "c3_connectivity_no_barriers.tif"))
 ```

@@ -766,7 +766,7 @@ pas_to_show <- pas_c1 %>%
                        "Lake Manyara National Park"))
 pas_to_show$park_name <- c("Serengeti NP",
                        "Ngorongoro CA",
-                       "Tarangire BP",
+                       "Tarangire NP",
                        "Lake Manyara NP")
 
 cluster <- habitat_clusters %>% filter(habitat_clusters == 1)
@@ -908,13 +908,13 @@ hotspots_c3 <- read_sf(file.path(cls_path, "hotspots_conservation_c3.shp")) %>%
 # Scenarios
 current_map_s1 <- rast(
     file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster2.tif")) %>% 
+              "cum_curmap_human_block_cluster3.tif")) %>% 
     crop(bry) %>% mask(bry)
 current_map_s1[is.na(current_map_s1)] <- 0
 
 current_map_s2 <- rast(
     file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster2.tif")) %>% 
+              "cum_curmap_human_block_complete_cluster3.tif")) %>% 
     crop(bry) %>% mask(bry)
 current_map_s2[is.na(current_map_s2)] <- 0
 current_change <- current_map_s2 / current_map_s1
@@ -1026,6 +1026,148 @@ ggarrange(
 
 ggsave(file.path(fg_path, "figure7_clusters_170w_180h_500dpi_1c.png"), 
        bg = "white", width = 190, height = 170, 
+       units = "mm", dpi = 500)
+```
+
+### Supplementary Figure S2: examples of barrier pixels
+
+This figure shows the examples of pixels that are selected as barriers for elephant movement. NOTE that the objective of selecting these pixels is to help us understand the potential impacts of human activities on elephant movement. These are not necessarily cannot be used by elephants. First, humans will use strategies to protect their houses and farms, so even though the landscape can be used by elephants, they may not pass. Second, once elephants step in these land, human-elephant conflicts usually happen.
+
+### Supplementary Figure S3: protected areas (PAs)
+
+```{r}
+study_area <- read_sf(
+    file.path(vct_path, "mainland_tanzania.geojson"))
+pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+clusters <- read_sf(
+    file.path(data_path, "observations", "habitat_clusters_aggre.geojson"))
+
+# Read other PAs
+pas_others <- read_sf(file.path(vct_path, "wdpa_selected.geojson"))
+pas_others <- pas_others %>% 
+    slice(-unique(unlist(st_intersects(pas, pas_others))))
+
+brys <- do.call(rbind, lapply(1:3, function(id){
+    pas %>% filter(cluster == id) %>% 
+        st_union() %>% st_convex_hull() %>% 
+        st_as_sf() %>% rename(geometry = x)
+})) %>% mutate(id = 1:3)
+
+cnts <- st_centroid(pas) %>% 
+    st_coordinates() %>% data.frame() %>% 
+    mutate(label = pas$park_name,
+           cluster = pas$cluster)
+
+# Plot
+g1 <- ggplot() +
+    geom_sf(data = study_area, 
+            fill = "transparent", color = "black", linewidth = 0.6) +
+    geom_sf(data = brys, 
+            fill = "transparent", 
+            aes(color = "Convex hull"), linewidth = 0.6) +
+    geom_sf(data = pas, 
+            fill = "transparent", 
+            aes(color = 'PAs used for connectivity')) +
+    geom_sf(data = pas_others %>% 
+                mutate(area = st_area(.)) %>% 
+                filter(area > 20000000 %>% units::set_units("m2")),
+            fill = "transparent", 
+            aes(color = "Other PAs")) +
+    scale_color_manual(
+        NULL, values = c("blue", "gray40", "orange"),
+        breaks = c("Convex hull", 
+                   'PAs used for connectivity', 
+                   "Other PAs")) +
+    geom_sf_text(data = pas_others,
+                 aes(label = NAME), color = "black",
+                 check_overlap = TRUE, size = 2) +
+    geom_sf_text(data = brys,
+                 aes(label = id), color = "black", 
+                 size = 5) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g2 <- ggplot() +
+    geom_sf(data = brys[1, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 1), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 1), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g3 <- ggplot() +
+    geom_sf(data = brys[2, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 2), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 2), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+g4 <- ggplot() +
+    geom_sf(data = brys[3, ], 
+            fill = "transparent", 
+            color = "blue", linewidth = 0.6) +
+    geom_sf(data = pas %>% filter(cluster == 3), 
+            fill = "transparent", 
+            color = "gray40") +
+    geom_text(data = cnts %>% filter(cluster == 3), 
+              aes(x = X, y = Y, label = label),
+              check_overlap = TRUE) +
+    theme_void() +
+    theme(text = element_text(size = 10),
+          legend.text = element_text(size = 10),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+ggarrange(g1, g2, g3, g4, labels = c("", "1", "2", "3"),
+          font.label = list(size = 12),
+          nrow = 2, ncol = 2)
+
+ggsave(file.path(fg_path, "figureS2_PA.png"), 
+       bg = "white", width = 190, height = 190, 
        units = "mm", dpi = 500)
 ```
 
@@ -1214,19 +1356,21 @@ ggsave(file.path(fg_path, "figure4_eval_coarse_90w_80h_500dpi_1c.png"),
 ```{r}
 # Types
 type_a <- c(nms[1:8], "Cropland edge density", 
-            "Patch density", "Ratio of waterbodies", 
-            "Savanna patch density", "Tree edge density")
+            "Patch density", "Coverage of waterbodies", 
+            "Patch density (open habitat)", 
+            "Edge density of closed canopy habitat")
 type_b <- c("River density", "Road density", "Settlement density",
-            "Mean of Contiguity index (Savanna)")
+            "Mean of Contiguity index (open habitat)")
 type_c <- c("Shannon's diversity index", "Surface roughness",
-            "Patch richness density", "Ratio of savanna")
+            "Patch richness density", "Coverage of open habitat")
 
 # x value transition
-group_orig <- c(nms[1:8], "Mean of Contiguity index (Savanna)",
-                "Shannon's diversity index", "Ratio of savanna")
+group_orig <- c(nms[1:8], "Mean of Contiguity index (open habitat)",
+                "Shannon's diversity index", "Coverage of open habitat")
 group_log <- c("Cropland edge density", 
-               "Patch density", "Ratio of waterbodies", 
-               "Savanna patch density", "Tree edge density",
+               "Patch density", "Coverage of waterbodies", 
+               "Patch density (open habitat)", 
+               "Edge density of closed canopy habitat",
                "River density", "Road density", 
                "Settlement density", "Surface roughness", 
                "Patch richness density")
@@ -1235,7 +1379,7 @@ group_log <- c("Cropland edge density",
 fg_orig_list <- lapply(group_orig, function(nm) {
     set.seed(123)
     
-    if (nm == "Mean of Contiguity index (Savanna)") {
+    if (nm == "Mean of Contiguity index (open habitat)") {
         data <- var_rsp %>% 
             filter(variable == nm) %>% 
             group_by(scale) %>% 
@@ -1246,14 +1390,14 @@ fg_orig_list <- lapply(group_orig, function(nm) {
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(data = data %>% filter(x > 0 & x < 0.95),
                         aes(x = x, y = y, color = scale, fill = scale),
-                        se = TRUE, level = 0.95, method = 'gam', size = 0.7,
+                        se = TRUE, level = 0.95, method = 'gam', linewidth = 0.7,
                         formula = y ~ s(x, bs = "cs", k = 4)) +
             scale_color_brewer("Scale", palette = "Dark2") +
             scale_fill_brewer("Scale", palette = "Dark2") +
             geom_hline(yintercept = 0, linetype = "dashed") +
             ylim(c(-0.08, 0.02)) +
             ylab('Shapley value') +
-            xlab(expression(CONTIG[NM]~(savanna))) +
+            xlab(expression(CONTIG[NM]~(open~habitat))) +
             theme_classic() +
             theme(text = element_text(size = 10, color = "black"),
                   axis.text.x = element_text(angle = 0),
@@ -1262,7 +1406,7 @@ fg_orig_list <- lapply(group_orig, function(nm) {
                   legend.text = element_text(size = rel(1)),
                   legend.position = "top") +
             guides(fill = guide_legend(nrow = 1))
-    } else if (nm == "Ratio of savanna") {
+    } else if (nm == "Coverage of open habitat") {
         data <- var_rsp %>% 
             filter(variable == nm) %>% 
             group_by(scale) %>% 
@@ -1273,7 +1417,7 @@ fg_orig_list <- lapply(group_orig, function(nm) {
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(data = data %>% filter(x < 0.99),
                         aes(x = x, y = y, color = scale, fill = scale),
-                        se = TRUE, level = 0.95, size = 0.8,
+                        se = TRUE, level = 0.95, linewidth = 0.8,
                         method = 'gam', formula = y ~ s(x, bs = "cs", k = 5)) +
             scale_color_brewer("Scale", palette = "Dark2") +
             scale_fill_brewer("Scale", palette = "Dark2") +
@@ -1298,7 +1442,7 @@ fg_orig_list <- lapply(group_orig, function(nm) {
             geom_point(aes(x = x, y = y, fill = scale), pch = 21,
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
-                        se = TRUE, level = 0.95, size = 0.8,
+                        se = TRUE, level = 0.95, linewidth = 0.8,
                         method = 'gam', formula = y ~ s(x, bs = "cs", k = 6)) +
             scale_color_brewer("Scale", palette = "Dark2") +
             scale_fill_brewer("Scale", palette = "Dark2") +
@@ -1333,7 +1477,7 @@ fg_log_list <- lapply(group_log, function(nm) {
             geom_point(aes(x = x, y = y, fill = scale), pch = 21,
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
-                        se = TRUE, level = 0.95, size = 0.8) +
+                        se = TRUE, level = 0.95, linewidth = 0.8) +
             scale_color_brewer("Scale", palette = "Dark2") +
             scale_fill_brewer("Scale", palette = "Dark2") +
             geom_hline(yintercept = 0, linetype = "dashed") +
@@ -1357,7 +1501,7 @@ fg_log_list <- lapply(group_log, function(nm) {
             geom_point(aes(x = x, y = y, fill = scale), pch = 21,
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
-                        se = TRUE, level = 0.95, size = 0.8,
+                        se = TRUE, level = 0.95, linewidth = 0.8,
                         method = 'gam', formula = y ~ s(x, bs = "cs", k = 5)) +
             scale_color_brewer("Scale", palette = "Dark2") +
             scale_fill_brewer("Scale", palette = "Dark2") +
@@ -1390,29 +1534,105 @@ ggarrange(plotlist = fg_type_a,
           ncol = 3, nrow = 5,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "sup_variable_response_a.png"), 
+ggsave(file.path(fg_path, "figureS6_variable_response_a.png"), 
        width = 6.5, height = 8.5, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_b, 
           ncol = 2, nrow = 2,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "sup_variable_response_b.png"), 
+ggsave(file.path(fg_path, "figureS7_variable_response_b.png"), 
        width = 4.3, height = 4, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_c, 
           ncol = 2, nrow = 2,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "sup_variable_response_c.png"), 
+ggsave(file.path(fg_path, "figureS8_variable_response_c.png"), 
        width = 4.3, height = 4, dpi = 500, bg = "white")
 ```
 
-### Figure S9: seperate short-distance connectivity
+### Figure S9
 
-Figure S9 shows the simulated landscape connectivity for short-distance move.
+This is the reference figure of landscape connectivity between habitats without setting any barriers.
 
-#### Figure S9-1 
+```{r}
+# Define colors
+col_habitats <- "#1b9e77"
+
+# Read data
+bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
+habitat_clusters <- read_stars(file.path(cnt_path, "habitat_clusters.tif"))
+habitat_clusters[habitat_clusters == 0] <- NA
+habitat_clusters[habitat_clusters > 0] <- "Habitat cluster"
+
+# No barrier reference
+current_map_ref <- read_stars(
+    file.path(cnt_exp_path, "connectivity_no_barriers.tif"))
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.02) & 
+                     values <= quantile(values, 0.98)]
+breaks_ref <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.3f,%.3f]", breaks_ref$brks, c(breaks_ref$brks[-1], 1))
+current_map_ref <- cut(current_map_ref, breaks = c(breaks_ref$brks, 1),
+                      labels = labels)
+# Plot
+g_s1 <- ggplot() +
+    geom_stars(data = current_map_ref, na.action = na.omit) +
+    scale_fill_brewer(
+        "Connectivity\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_stars(data = habitat_clusters, 
+               na.action = na.omit, show.legend = FALSE) +
+    scale_fill_manual("", values = col_habitats,
+                      na.translate = FALSE) +
+    geom_sf(data = bry, color = "grey", 
+            fill = "transparent", linewidth = 0.5) +
+    annotate("text", x = c(35.69, 37.43, 32.48), y = c(-2.57, -9.18, -6.9), 
+             label = c(1, 2, 3)) +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "none",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(-0.5, 4), "cm"))
+
+current_map_s1 <- read_stars(
+    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
+legend_common <- ggplot() +
+    geom_stars(data = current_map_s1, 
+               na.action = na.omit) +
+    scale_fill_distiller("Current density\n ",
+                         palette = "BuPu", breaks = c(0, 0.5, 1), 
+                         labels = c("Low", "Med", "High"), direction = 1) +
+    theme(text = element_text(size = 14),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0.3, 'cm'),
+          legend.box = "vertical",
+          legend.key.height = unit(0.3,"cm"),
+          plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(0.1, 4)),
+          legend.box.margin = margin(rep(-0.1, 4)),
+          legend.title = element_text(size = 12))
+legend_common <- get_legend(legend_common)
+
+ggarrange(g_s1, legend_common, nrow = 2, 
+          heights = c(0.9, 0.1))
+
+ggsave(file.path(fg_path, "figureS9_connectivity_bw_wo_barriers.png"), 
+       width = 4, height = 4.3, dpi = 500, bg = "white")
+```
+
+### Figure S10 & S11: seperate short-distance connectivity
+
+Figure S10-11 shows the simulated landscape connectivity for short-distance move.
+
+#### Figure S10/11-1 
 
 The figure for habitat cluster 1.
 
@@ -1542,9 +1762,44 @@ plot_c1 <- ggarrange(g_s1 + theme(legend.position = "none"),
                      labels = c("1.A", "1.B"),
                      font.label = list(size = 12),
                      nrow = 2)
+
+# No barrier reference
+current_map_ref <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster1.tif")) %>% 
+    crop(bry) %>% mask(bry)
+current_map_ref <- st_as_stars(norm_rast(current_map_ref))
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_ref_c1 <- ggplot() +
+    geom_stars(data = current_map_ref, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_sf(data = pas_c1, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "none",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
 ```
 
-#### Figure S9-2
+#### Figure S10/11-2
 
 The figure for habitat Cluster 2.
 
@@ -1667,9 +1922,44 @@ plot_c2 <- ggarrange(g_s1 + theme(legend.position = "none"),
                      labels = c("2.A", "2.B"),
                      font.label = list(size = 12),
                      nrow = 2)
+
+# No barrier reference
+current_map_ref <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster2.tif")) %>% 
+    crop(bry) %>% mask(bry)
+current_map_ref <- st_as_stars(norm_rast(current_map_ref))
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_ref_c2 <- ggplot() +
+    geom_stars(data = current_map_ref, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_sf(data = pas_c2, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "none",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
 ```
 
-#### Figure S9-3
+#### Figure S10/11-3
 
 The figure for habitat Cluster 3.
 
@@ -1791,9 +2081,89 @@ plot_c3 <- ggarrange(g_s1 + theme(legend.position = "none"),
                      labels = c("3.A", "3.B"),
                      font.label = list(size = 12),
                      nrow = 2)
+
+# No barrier reference
+current_map_ref <- rast(
+    file.path(cls_path, "original",
+              "cum_curmap_original_cluster3.tif")) %>% 
+    crop(bry) %>% mask(bry)
+current_map_ref <- st_as_stars(norm_rast(current_map_ref))
+
+# Reformat the cuts to make the map looks pretty
+values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
+values <- values[values >= quantile(values, 0.01) & 
+                     values <= quantile(values, 0.99)]
+breaks <- classIntervals(round(values, 3), 
+                         n = 7, style = "equal")
+labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
+current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
+                      labels = labels)
+# Plot
+g_ref_c3 <- ggplot() +
+    geom_stars(data = current_map_ref, na.action = na.omit) +
+    scale_fill_brewer(
+        "Current density\nscenario 1\n(0-1)", direction = 1,
+        palette = "BuPu",
+        na.translate = FALSE) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
+    ggnewscale::new_scale_fill() +
+    geom_sf(data = pas_c3, color = "gray40", 
+            fill = "transparent") +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent") +
+    coord_sf() + theme_void() +
+    theme(text = element_text(size = 12),
+          legend.position = "none",
+          legend.spacing.y = unit(0, 'cm'),
+          plot.margin = unit(rep(0, 4), "cm"))
 ```
 
-#### Plot together
+#### Plot together for Figure 10
+
+```{r}
+# Make the common legend
+cls_path <- file.path(cnt_exp_path, "cluster_1")
+current_map_s1 <- rast(
+    file.path(cls_path, "human_block",
+              "cum_curmap_human_block_cluster1.tif"))
+current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
+legend_common <- ggplot() +
+    geom_stars(data = current_map_s1, 
+               na.action = na.omit) +
+    scale_fill_distiller("Current density\n ",
+        palette = "BuPu", breaks = c(0, 0.5, 1), 
+        labels = c("Low", "Med", "High"), direction = 1) +
+    ggnewscale::new_scale_fill() +
+    geom_sf(data = pas_c3, aes(color = "Protected areas"), 
+            fill = "transparent") +
+    scale_color_manual(NULL, values = c("gray40"),
+                      breaks = c('Protected areas'),
+                      guide = guide_legend(order = 1)) +
+    theme(text = element_text(size = 14),
+          legend.position = "bottom",
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.box = "vertical",
+          plot.margin = unit(rep(0, 4), "cm"),
+          legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.4,"cm"),
+          legend.margin = margin(rep(0.2, 4)),
+          legend.box.margin = margin(rep(0.1, 4)),
+          legend.title = element_text(size = 11))
+legend_common <- get_legend(legend_common)
+
+ggarrange(ggarrange(g_ref_c1, g_ref_c2, 
+                    g_ref_c3, ncol = 3,
+                    labels = c("1", "2", "3"),
+                     font.label = list(size = 12)), 
+          legend_common, ggplot() + theme_void(),
+          nrow = 3, heights = c(0.9, 0.1, 0.05))
+
+ggsave(file.path(fg_path, "figureS10_clusters_190w_90h_500dpi_1c.png"), 
+       bg = "white", width = 190, height = 90, 
+       units = "mm", dpi = 500)
+```
+
+#### Plot together for Figure 11
 
 ```{r}
 # Make the common legend
@@ -1843,151 +2213,6 @@ ggsave(file.path(fg_path, "figureS9_clusters_190w_170h_500dpi_1c.png"),
        bg = "white", width = 190, height = 170, 
        units = "mm", dpi = 500)
 ```
-
-### Supplementary Figure S2
-
-This figure shows the examples of pixels that are selected as barriers for elephant movement. NOTE that the objective of selecting these pixels is to help us understand the potential impacts of human activities on elephant movement. These are not necessarily cannot be used by elephants. First, humans will use strategies to protect their houses and farms, so even though the landscape can be used by elephants, they may not pass. Second, once elephants step in these land, human-elephant conflicts usually happen.
-
-### Supplementary Figure S3
-
-The protected areas (PAs).
-
-```{r}
-study_area <- read_sf(
-    file.path(vct_path, "mainland_tanzania.geojson"))
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-clusters <- read_sf(
-    file.path(data_path, "observations", "habitat_clusters_aggre.geojson"))
-
-# Read other PAs
-pas_others <- read_sf(file.path(vct_path, "wdpa_selected.geojson"))
-pas_others <- pas_others %>% 
-    slice(-unique(unlist(st_intersects(pas, pas_others))))
-
-brys <- do.call(rbind, lapply(1:3, function(id){
-    pas %>% filter(cluster == id) %>% 
-        st_union() %>% st_convex_hull() %>% 
-        st_as_sf() %>% rename(geometry = x)
-})) %>% mutate(id = 1:3)
-
-cnts <- st_centroid(pas) %>% 
-    st_coordinates() %>% data.frame() %>% 
-    mutate(label = pas$park_name,
-           cluster = pas$cluster)
-
-# Plot
-g1 <- ggplot() +
-    geom_sf(data = study_area, 
-            fill = "transparent", color = "black", linewidth = 0.6) +
-    geom_sf(data = brys, 
-            fill = "transparent", 
-            aes(color = "Convex hull"), linewidth = 0.6) +
-    geom_sf(data = pas, 
-            fill = "transparent", 
-            aes(color = 'PAs used for connectivity')) +
-    geom_sf(data = pas_others %>% 
-                mutate(area = st_area(.)) %>% 
-                filter(area > 20000000 %>% units::set_units("m2")),
-            fill = "transparent", 
-            aes(color = "Other PAs")) +
-    scale_color_manual(
-        NULL, values = c("blue", "gray40", "orange"),
-        breaks = c("Convex hull", 
-                   'PAs used for connectivity', 
-                   "Other PAs")) +
-    geom_sf_text(data = pas_others,
-                 aes(label = NAME), color = "black",
-                 check_overlap = TRUE, size = 2) +
-    geom_sf_text(data = brys,
-                 aes(label = id), color = "black", 
-                 size = 5) +
-    theme_void() +
-    theme(text = element_text(size = 10),
-          legend.text = element_text(size = 10),
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.margin = margin(rep(0, 4)), 
-          legend.key.height= unit(0.4, 'cm'),
-          legend.key.width= unit(0.4, 'cm'),
-          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
-          legend.position = "bottom",
-          legend.box.just = "left",
-          legend.box = "vertical")
-
-g2 <- ggplot() +
-    geom_sf(data = brys[1, ], 
-            fill = "transparent", 
-            color = "blue", linewidth = 0.6) +
-    geom_sf(data = pas %>% filter(cluster == 1), 
-            fill = "transparent", 
-            color = "gray40") +
-    geom_text(data = cnts %>% filter(cluster == 1), 
-              aes(x = X, y = Y, label = label),
-              check_overlap = TRUE) +
-    theme_void() +
-    theme(text = element_text(size = 10),
-          legend.text = element_text(size = 10),
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.margin = margin(rep(0, 4)), 
-          legend.key.height= unit(0.4, 'cm'),
-          legend.key.width= unit(0.4, 'cm'),
-          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
-          legend.position = "bottom",
-          legend.box.just = "left",
-          legend.box = "vertical")
-
-g3 <- ggplot() +
-    geom_sf(data = brys[2, ], 
-            fill = "transparent", 
-            color = "blue", linewidth = 0.6) +
-    geom_sf(data = pas %>% filter(cluster == 2), 
-            fill = "transparent", 
-            color = "gray40") +
-    geom_text(data = cnts %>% filter(cluster == 2), 
-              aes(x = X, y = Y, label = label),
-              check_overlap = TRUE) +
-    theme_void() +
-    theme(text = element_text(size = 10),
-          legend.text = element_text(size = 10),
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.margin = margin(rep(0, 4)), 
-          legend.key.height= unit(0.4, 'cm'),
-          legend.key.width= unit(0.4, 'cm'),
-          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
-          legend.position = "bottom",
-          legend.box.just = "left",
-          legend.box = "vertical")
-
-g4 <- ggplot() +
-    geom_sf(data = brys[3, ], 
-            fill = "transparent", 
-            color = "blue", linewidth = 0.6) +
-    geom_sf(data = pas %>% filter(cluster == 3), 
-            fill = "transparent", 
-            color = "gray40") +
-    geom_text(data = cnts %>% filter(cluster == 3), 
-              aes(x = X, y = Y, label = label),
-              check_overlap = TRUE) +
-    theme_void() +
-    theme(text = element_text(size = 10),
-          legend.text = element_text(size = 10),
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.margin = margin(rep(0, 4)), 
-          legend.key.height= unit(0.4, 'cm'),
-          legend.key.width= unit(0.4, 'cm'),
-          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
-          legend.position = "bottom",
-          legend.box.just = "left",
-          legend.box = "vertical")
-
-ggarrange(g1, g2, g3, g4, labels = c("", "1", "2", "3"),
-          font.label = list(size = 12),
-          nrow = 2, ncol = 2)
-
-ggsave(file.path(fg_path, "figureS2_PA.png"), 
-       bg = "white", width = 190, height = 190, 
-       units = "mm", dpi = 500)
-```
-
 
 ### Figure *: cross-section of the corridors
 

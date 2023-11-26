@@ -45,7 +45,8 @@ cluster_msk <- pas %>% filter(cluster == cluster_id) %>%
     st_union() %>% vect() %>% ext()
 
 # Different conditions
-types <- c("human_block", "human_block_complete")
+# types <- c("human_block", "human_block_complete")
+types <- c("original")
 walk(1:length(types), 
      function(type_index) {
          type <- types[type_index]
