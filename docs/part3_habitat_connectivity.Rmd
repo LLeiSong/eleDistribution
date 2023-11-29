@@ -1,5 +1,5 @@
 ---
-title: 'Part3: convervation status analysis'
+title: 'Part3: Landscape connectivity analysis'
 author: "Lei Song"
 date: "7/27/2022"
 output: html_document

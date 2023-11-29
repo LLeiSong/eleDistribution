@@ -1,0 +1,172 @@
+---
+title: 'Part3: Simplified landscape connectivity analysis'
+author: "Lei Song"
+date: "7/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(here)
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(stars)
+
+data_path <- here("data")
+result_path <- here("results")
+vct_path <- file.path(data_path, "vectors")
+rst_path <- file.path(data_path, "rasters")
+pat_path <- file.path(data_path, "vars_patch")
+cnt_path <- file.path(data_path, "connectivity")
+cnt_exp_path <- file.path(result_path, "connectivity")
+```
+
+## Elephant movement simulation
+
+Randomly generate one mini 5km (an elephant herd size) habitat point within each selected PA (the PA that overlapped with range map), and then connect them by graph theory (circuitscape). Run this for 100 iteration to target the hotpots.
+
+```
+Rscript scripts/circt_experiment_cli.R -i TRUE -n 100
+```
+
+## Analysis the results
+### Long-distance connectivity between habitat clusters
+
+```{r}
+# Normalize current
+norm_rast <- function(s){
+    minmax(s, compute = TRUE)
+    nx <- minmax(s)    
+    (s - nx[1,]) / (nx[2,] - nx[1,])
+}
+
+# Read habitat clusters
+habitat_clusters <- read_sf(
+    file.path(data_path, "observations/habitat_clusters.geojson"))
+
+habitat_clusters <- do.call(
+    rbind, lapply(unique(habitat_clusters$cluster), 
+                  function(index) {
+        habitat_clusters %>% filter(cluster == index) %>% 
+            st_union() %>% st_convex_hull() %>% 
+            st_as_sf(cluster = index) %>% 
+            rename(geometry = x)
+}))
+
+# Overlap with expert range map
+range_map <- read_sf(
+    file.path(data_path, "observations/range_map.geojson"))
+
+habitat_clusters <- st_intersection(range_map, habitat_clusters) %>% 
+    mutate(area = st_area(.) %>% units::set_units("km2")) %>% 
+    filter(area > 10000 %>% units::set_units("km2")) %>% 
+    arrange(cluster) %>% 
+    mutate(name = c("North", "Southeast", "Southwest")) %>% 
+    select(cluster, name)
+
+# And and accumulated current map
+curmap_long <- rast(file.path(cnt_exp_path, "mean_curmap.tif"))
+
+# Mask out the habitat clusters
+curmap_long <- mask(curmap_long, habitat_clusters, 
+                    inverse = TRUE, updatevalue = NA)
+curmap_long <- norm_rast(curmap_long)
+writeRaster(curmap_long, file.path(cnt_exp_path, "connectivity_long.tif"))
+```
+
+#### Potential corridors (current and future) between habitat clusters
+
+Get the "least-cost-path" for each case to compare the level of difficulty for each potential path.
+
+```
+Rscript scripts/shortest_path_examples.R
+```
+
+#### Path analysis for the corridors between habitat clusters
+
+```{r}
+library(ggridges)
+library(tidyr)
+select <- dplyr::select
+
+# NDVI dry season, NDVI wet season, elevation
+elevation <- rast(file.path(rst_path, "dsm_tanzania_1km.tif"))
+ndvi_dry <- rast(file.path(
+    data_path, "NDVI","lansat8_sr_13_19_dry_NDVI_mean_1000m.tif")) %>% 
+    resample(elevation)
+ndvi_wet <- rast(file.path(
+    data_path, "NDVI","lansat8_sr_13_19_wet_NDVI_mean_1000m.tif")) %>% 
+    resample(elevation)
+cropland_ratio <- rast(file.path(cnt_path, "cropland_ratio.tif"))
+vars <- c(elevation, ndvi_dry, ndvi_wet, cropland_ratio)
+rm(elevation, ndvi_dry, ndvi_wet, cropland_ratio)
+names(vars) <- c("Elevation", "NDVI (dry season)", 
+                 "NDVI (wet season)", "Cropland coverage")
+
+lcps <- read_sf(
+    file.path(cnt_exp_path, "least_cost_examples.geojson"))
+lcps <- lcps %>% mutate(id = 1:nrow(.))
+
+lcps_statistics <- lapply(lcps$id, function(index){
+    if (index %in% 1:3){
+        terra::extract(
+            vars, 
+            lcps %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-y) %>% mutate(lat = y) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lat, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    } else {
+        terra::extract(
+            vars, 
+            lcps %>% filter(id == index) %>% vect(),
+            xy = TRUE) %>% 
+            arrange(-x) %>% mutate(lon = x) %>% 
+            mutate(id = 1:nrow(.)) %>% 
+            select(lon, Elevation, "NDVI (dry season)", 
+                   "NDVI (wet season)", "Cropland coverage") %>% 
+            pivot_longer(cols = c("Elevation", "NDVI (dry season)", 
+                                  "NDVI (wet season)", "Cropland coverage"),
+                         names_to = "variable", values_to = "value")
+    }
+})
+
+save(lcps_statistics, 
+     file = file.path(cnt_exp_path, "corridors_statistics.rda"))
+```
+
+### Short-distance connectivity within each habitat cluster
+
+```{r}
+pas <- read_sf(file.path(vct_path, "wdpa_selected.geojson")) %>% 
+    filter(DESIG_ENG %in% c("Game Reserve", "National Park",
+                            "Game controlled area", "Conservation Area",
+                            "Open area", "Wildlife Management Area"))
+habitat_clusters <- read_sf(file.path(data_path, "observations",
+                                      "habitat_clusters_aggre.geojson"))
+pas <- pas %>% slice(unique(unlist(st_intersects(habitat_clusters, pas))))
+pas <- st_join(pas, habitat_clusters) %>% 
+    mutate(park_name = NAME) %>% 
+    select(cluster, name, park_name)
+write_sf(pas, file.path(cnt_path, "pas.geojson"))
+
+# Separate them
+for (cluster_id in 1:3){
+    # Borders
+    pas_c1 <- pas %>% filter(cluster == cluster_id)
+    bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
+        st_as_sf() %>% rename(geometry = x)
+    
+    # current
+    curmap <- rast(file.path(cnt_exp_path, "mean_curmap.tif"))
+    curmap <- mask(curmap, bry) %>% trim()
+    curmap <- norm_rast(curmap)
+    fname <- file.path(cnt_exp_path, sprintf("connectivity_c%s.tif", cluster_id))
+    writeRaster(curmap, fname)
+}
+```

@@ -1,0 +1,170 @@
+# Title     : Calculate multi-species landscape connectivity
+# Objective : The main function to calculate the multi-species level habitat 
+#             connectivity. Use the mean suitability values as the conductance. 
+# Created by: Lei Song
+# Created on: 09/09/23
+# Note      : Use cg+amg solver to avoid RAM crisis. The user can modify the
+#             loop part to an independent script to run on HPC to speed up.
+
+# Load libraries
+library(sf)
+library(here)
+library(terra)
+library(dplyr)
+library(stringr)
+library(ini)
+library(purrr)
+library(JuliaCall)
+library(parallel)
+library(optparse)
+sf_use_s2(FALSE)
+
+# Set directories
+data_path <- here("data")
+result_path <- here("results")
+vct_path <- file.path(data_path, "vectors")
+cnt_path <- file.path(data_path, "connectivity")
+cnt_exp_path <- file.path(result_path, "connectivity")
+if (!dir.exists(cnt_path)) dir.create(cnt_path)
+if (!dir.exists(cnt_exp_path)) dir.create(cnt_exp_path)
+
+# Parse inline arguments
+option_list <- list(
+    make_option(c("-i", "--initial"), 
+                action = "store_true", default = FALSE,
+                help = "Initialize inputs [default]"),
+    make_option(c("-n", "--n_iteration"), 
+                action = "store", default = 10, type = 'integer',
+                help = "No. of time to iteration [default %default]"))
+opt <- parse_args(OptionParser(option_list = option_list))
+initial <- opt$initial
+n_iteration <- opt$n_iteration
+
+if (initial){
+    # Prepare inputs for circuitscape
+    ## Write out asc file for suitability
+    suitability <- rast(
+        file.path(result_path, "landscape_utility_1km_integrated.tif"),
+        lyrs = 1)
+    suitability[is.na(suitability)] <- -9999
+    writeRaster(suitability, file.path(cnt_path, 'suitability.asc'),
+                wopt = list(NAflag = -9999))
+    
+    ## Filter the protected areas
+    ## Remove culture and forest based PAs by assuming dense forest reserve highly 
+    ## impossibly serve as a long-term home range as they are mainly savanna animals.
+    ## These areas can still be used by animals if they are important, 
+    ## just not be used for nodes in circuitscape.
+    pas <- read_sf(file.path(vct_path, "wdpa_selected.geojson")) %>% 
+        filter(DESIG_ENG %in% c("Game Reserve", "National Park",
+                                "Game controlled area", "Conservation Area",
+                                "Open area", "Wildlife Management Area"))
+    range_map <- read_sf(
+        file.path(data_path, "observations/range_map.geojson"))
+    pas <- pas %>% slice(unique(unlist(st_intersects(range_map, pas))))
+    # No of pas reduce from 92 to 85.
+    
+    ## Double check "World Heritage Site (natural or mixed)" only contains parks
+    ## after this step
+    
+    ## Remove some small ones, smaller than Lake Manyara park
+    pas <- pas %>% mutate(area = st_area(.)) %>% 
+        filter(area > units::set_units(1e08, "m^2")) %>% 
+        select(NAME)
+    # No change though
+    
+    # Could remove some duplicates, but not required
+    st_write(pas, file.path(cnt_path, "pas_selected.geojson"))
+}
+
+# Run simulations
+## Reload the data
+pas <- read_sf(file.path(cnt_path, "pas_selected.geojson")) %>% select()
+suit_fname <- file.path(cnt_path, 'suitability.asc')
+
+# set up Julia
+# julia_setup(installJulia = TRUE)
+julia_install_package_if_needed("Circuitscape")
+julia_library("Circuitscape")
+# Copy the file to the directory
+config <- read.ini(
+    file.path(cnt_path, "circuitscape_setting_template.ini"))
+
+# Make folder to save nodes and simulations
+src_dir <- file.path(cnt_path, "nodes")
+dst_dir <- file.path(cnt_path, "simulations")
+for (dir_to in c(src_dir, dst_dir)){
+    if (!dir.exists(dir_to)) dir.create(dir_to)}
+
+# Iterations
+suit_map <- rast(suit_fname)
+cum_rasters <- lapply(1:n_iteration, function(n) {
+    set.seed(100 + n)
+    
+    # Get the PAs
+    ## Use half PAs and randomly generate mini habitat patches as nodes
+    nodes <- pas %>% sample_frac(0.5) %>%
+        st_sample(size = rep(1, nrow(.))) %>% 
+        st_as_sf() %>% mutate(id = 1:nrow(.)) %>% vect() %>% 
+        buffer(width = 5000) %>% 
+        rasterize(suit_map, field = "id")
+    nodes[nodes == 0] <- -9999
+    nodes <- mask(nodes, suit_map)
+    
+    # Name it
+    nm <- sprintf('iter_%s', n)
+    message(sprintf("Run experiment for iteration No.%s.", n))
+    
+    # Save out nodes
+    node_name <- file.path(src_dir, sprintf("nodes_%s.asc", nm))
+    writeRaster(nodes, node_name, wopt = list(NAflag = -9999), overwrite = TRUE)
+    
+    # Revise the config parameters
+    config$`Output options`$write_cur_maps <- 0
+    config$`Output options`$write_volt_maps <- 0
+    config$`Output options`$write_cum_cur_map_only <- "True"
+    config$`Output options`$write_max_cur_maps <- "False"
+    config$`Output options`$output_file <-
+        file.path(dst_dir, nm)
+    config$`Logging Options`$log_file <-
+        file.path(dst_dir, sprintf("%s.log", nm))
+    config$`Options for pairwise and one-to-all and all-to-one modes`$point_file <-
+        node_name
+    config$`Habitat raster or graph`$habitat_file <- suit_fname
+    config$`Calculation options`$max_parallel <- parallel::detectCores() - 2
+    config$`Calculation options`$solver <- "cg+amg"
+    config$`Calculation options`$use_64bit_indexing = 'True'
+    config$`Calculation options`$print_timings <- 'True'
+    config$`Calculation options`$print_rusages <- 'True'
+    config$`Calculation options`$preemptive_memory_release <- 'True'
+    fname <- file.path(src_dir, sprintf("%s.ini", nm))
+    write.ini(config, fname)
+    
+    # Run the experiment
+    if (file.exists(fname)) {
+        julia_command(sprintf('compute("%s")', fname))
+    } else {
+        warning("Failed to write out config file.")
+    }
+    
+    # Read the files
+    cum_raster <- rast(
+        file.path(dst_dir, sprintf("%s_cum_curmap.asc", nm)))
+    mask(cum_raster, nodes, inverse = TRUE, updatevalue = NA)
+})
+
+# Gather results
+cum_raster <- do.call(c, cum_rasters) %>% 
+    sum(na.rm = TRUE)
+mean_raster <- do.call(c, cum_rasters) %>% 
+    mean(na.rm = TRUE)
+cum_fname <- file.path(cnt_exp_path, "cum_curmap.tif")
+mean_fname <- file.path(cnt_exp_path, "mean_curmap.tif")
+writeRaster(cum_raster, cum_fname)
+writeRaster(mean_raster, mean_fname)
+
+# Normalize the mean cumulative current density
+mean_raster_norm <- stretch(mean_raster, minv = 0, maxv = 1, histeq = TRUE)
+writeRaster(
+    mean_raster_norm, overwrite = TRUE,
+    file.path(cnt_exp_path, "mean_curmap_robust_norm.tif"))
