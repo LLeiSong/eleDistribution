@@ -33,54 +33,44 @@ option_list <- list(
     make_option(c("-i", "--initial"), 
                 action = "store_true", default = FALSE,
                 help = "Initialize inputs [default]"),
+    make_option(c("-c", "--cluster_id"), 
+                action = "store", default = 1, type = 'integer', 
+                help = sprintf("The index of cluster to process ",
+                               "from [1, 2, 3]. [default %default]")),
     make_option(c("-n", "--n_iteration"), 
                 action = "store", default = 10, type = 'integer',
                 help = "No. of time to iteration [default %default]"))
 opt <- parse_args(OptionParser(option_list = option_list))
 initial <- opt$initial
+cluster_id <- opt$cluster_id
 n_iteration <- opt$n_iteration
 
 if (initial){
     # Prepare inputs for circuitscape
-    ## Write out asc file for suitability
-    suitability <- rast(
-        file.path(result_path, "landscape_utility_1km_integrated.tif"),
-        lyrs = 1)
-    suitability[is.na(suitability)] <- -9999
-    writeRaster(suitability, file.path(cnt_path, 'suitability.asc'),
-                wopt = list(NAflag = -9999))
-    
     ## Filter the protected areas
     ## Remove culture and forest based PAs by assuming dense forest reserve highly 
     ## impossibly serve as a long-term home range as they are mainly savanna animals.
     ## These areas can still be used by animals if they are important, 
     ## just not be used for nodes in circuitscape.
-    pas <- read_sf(file.path(vct_path, "wdpa_selected.geojson")) %>% 
-        filter(DESIG_ENG %in% c("Game Reserve", "National Park",
-                                "Game controlled area", "Conservation Area",
-                                "Open area", "Wildlife Management Area"))
-    range_map <- read_sf(
-        file.path(data_path, "observations/range_map.geojson"))
-    pas <- pas %>% slice(unique(unlist(st_intersects(range_map, pas))))
-    # No of pas reduce from 92 to 85.
+    pas <- st_read(file.path(cnt_path, "pas_selected.geojson"))
+    habitat_clusters <- st_read(file.path(cnt_path, "habitat_clusters.geojson"))
+    pas <- st_join(pas, habitat_clusters) %>% filter(cluster == cluster_id)
+    st_write(pas, file.path(cnt_path, sprintf("pas_%s.geojson", cluster_id)))
     
-    ## Double check "World Heritage Site (natural or mixed)" only contains parks
-    ## after this step
-    
-    ## Remove some small ones, smaller than Lake Manyara park
-    pas <- pas %>% mutate(area = st_area(.)) %>% 
-        filter(area > units::set_units(1e08, "m^2")) %>% 
-        select(NAME)
-    # No change though
-    
-    # Could remove some duplicates, but not required
-    st_write(pas, file.path(cnt_path, "pas_selected.geojson"))
+    ## Write out asc file for suitability
+    suitability <- rast(
+        file.path(result_path, "landscape_utility_1km_integrated.tif"),
+        lyrs = 1) %>% crop(st_union(pas) %>% vect() %>% ext())
+    suitability[is.na(suitability)] <- -9999
+    fname <- file.path(cnt_path, sprintf('suitability_%s.asc', cluster_id))
+    writeRaster(suitability, fname, wopt = list(NAflag = -9999))
 }
 
 # Run simulations
 ## Reload the data
-pas <- read_sf(file.path(cnt_path, "pas_selected.geojson")) %>% select()
-suit_fname <- file.path(cnt_path, 'suitability.asc')
+pas <- st_read(file.path(cnt_path, sprintf("pas_%s.geojson", cluster_id))) %>% 
+    select()
+suit_fname <- file.path(cnt_path, sprintf('suitability_%s.asc', cluster_id))
 
 # set up Julia
 # julia_setup(installJulia = TRUE)
@@ -91,8 +81,8 @@ config <- read.ini(
     file.path(cnt_path, "circuitscape_setting_template.ini"))
 
 # Make folder to save nodes and simulations
-src_dir <- file.path(cnt_path, "nodes")
-dst_dir <- file.path(cnt_path, "simulations")
+src_dir <- file.path(cnt_path, sprintf("nodes_%s", cluster_id))
+dst_dir <- file.path(cnt_path, sprintf("simulations_%s", cluster_id))
 for (dir_to in c(src_dir, dst_dir)){
     if (!dir.exists(dir_to)) dir.create(dir_to)}
 
@@ -103,7 +93,7 @@ cum_rasters <- lapply(1:n_iteration, function(n) {
     
     # Get the PAs
     ## Use half PAs and randomly generate mini habitat patches as nodes
-    nodes <- pas %>% sample_frac(0.5) %>%
+    nodes <- pas %>% 
         st_sample(size = rep(1, nrow(.))) %>% 
         st_as_sf() %>% mutate(id = 1:nrow(.)) %>% vect() %>% 
         buffer(width = 5000) %>% 
@@ -156,5 +146,5 @@ cum_rasters <- lapply(1:n_iteration, function(n) {
 # Gather results
 mean_raster <- do.call(c, cum_rasters) %>% 
     mean(na.rm = TRUE)
-mean_fname <- file.path(cnt_exp_path, "mean_curmap.tif")
+mean_fname <- file.path(cnt_exp_path, sprintf("mean_curmap_%s.tif", cluster_id))
 writeRaster(mean_raster, mean_fname)

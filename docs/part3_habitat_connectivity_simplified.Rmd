@@ -166,7 +166,7 @@ for (cluster_id in 1:3){
         st_as_sf() %>% rename(geometry = x)
     
     # current
-    curmap <- rast(file.path(cnt_exp_path, "mean_curmap.tif"))
+    curmap <- rast(file.path(cnt_exp_path, sprintf("mean_curmap_%s.tif", cluster_id)))
     curmap <- mask(curmap, bry) %>% trim()
     curmap <- norm_rast(curmap)
     fname <- file.path(cnt_exp_path, sprintf("connectivity_c%s.tif", cluster_id))

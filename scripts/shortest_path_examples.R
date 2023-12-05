@@ -125,6 +125,9 @@ lcps_common <- lcps_common |> group_by(group) |>
 lcps <- lcps_all %>% slice(unique(unlist(st_intersects(lcps_common, .)))) %>% 
     ms_simplify(0.05)
 
+# Delete temporary files
+file.remove(src_path, src_path_common)
+
 # Now prune the selected lines
 borders_buf <- habitat_clusters %>% 
     st_buffer(res(curmap)[1] * 1.5) %>% st_cast("LINESTRING")

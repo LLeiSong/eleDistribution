@@ -19,6 +19,8 @@ library(dplyr)
 library(tidyverse)
 library(ggpubr)
 library(stars)
+library(ggsflabel)
+library(ggsci)
 
 data_path <- here("data")
 rst_path <- file.path(data_path, "rasters")
@@ -422,9 +424,9 @@ library(biscale)
 library(tidyterra)
 
 # Read data
-bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
-habitat_clusters <- read_sf(file.path(cnt_path, "habitat_clusters.geojson"))
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
+bry <- st_read(file.path(vct_path, "mainland_tanzania.geojson"))
+habitat_clusters <- st_read(file.path(cnt_path, "habitat_clusters.geojson"))
+pas <- st_read(file.path(cnt_path, "pas.geojson"))
 
 ## Prepare ancillary elements in the figure
 waters <- read_sf(here("data/osm/gis_osm_water_a_free_1.shp")) %>% 
@@ -472,21 +474,22 @@ legend <- bi_legend(pal = "BlueOr",
                     size = 8, arrows = TRUE,  pad_width = 0.1) +
     theme(panel.background = element_rect(fill = "transparent", colour = NA),  
           plot.background = element_rect(fill = "transparent", colour = NA),
-          axis.title = element_text(size = 8, color = 'black'))
+          axis.title = element_text(size = 9, color = 'black'))
 legend <- ggplotGrob(legend)
 
 legend1 <- ggplot() +
     geom_raster(data = data.frame(x = 1, y = 1, z = factor(1)),
                 aes(x = x, y = y, fill = z)) +
-    scale_fill_manual("", values = "#D0DFE6FF",
+    scale_fill_manual("", values = "#FAE48BFF", # "#D0DFE6FF" 
                       labels = "Habitat cluster",
                       na.translate = FALSE,
                       guide = guide_legend(order = 1, byrow = FALSE)) +
-    theme(text = element_text(size = 10),
+    theme(text = element_text(size = 11),
           legend.position = "bottom",
           legend.spacing.y = unit(0.3, 'cm'),
           legend.box = "vertical",
           legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.3,"cm"),
           plot.margin = unit(rep(0, 4), "cm"),
           legend.margin = margin(rep(-1, 4)),
           legend.box.margin = margin(rep(-1, 4)))
@@ -497,11 +500,12 @@ legend2 <- ggplot() +
     scale_color_manual("", values = c("#EFD500FF"), 
                        labels = c("Least-cost path"),
                        guide = guide_legend(order = 1, byrow = FALSE)) +
-    theme(text = element_text(size = 10),
+    theme(text = element_text(size = 11),
           legend.position = "bottom",
           legend.spacing.y = unit(0.3, 'cm'),
-          legend.box = "vertical",
+          legend.box = "vertical", 
           legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.3,"cm"),
           plot.margin = unit(rep(0, 4), "cm"),
           legend.margin = margin(rep(-1, 4)),
           legend.box.margin = margin(rep(-1, 4)))
@@ -520,8 +524,8 @@ ggplot() +
     annotate("text", x = 33.7, y = -4.4, label = "b", 
              size = 4, color = "white") +
     geom_sf(data = lcp, color = "#EFD500FF", linewidth = 0.4) +
-    geom_sf(data = habitat_clusters, fill = "#D0DFE6FF", 
-            color = "#D0DFE6FF", linewidth = 0.4) +
+    geom_sf(data = habitat_clusters, fill = "#FAE48BFF", 
+            color = "#FAE48BFF", linewidth = 0.4) +
     geom_sf(data = parks2, color = "black", 
             fill = "transparent", linewidth = 0.2) +
     annotate("text", x = 36.6, y = -4.2, label = "c", 
@@ -531,7 +535,7 @@ ggplot() +
     geom_sf_text(data = waters %>% filter(name == "Lake Victoria"),
                  aes(label = name), nudge_y = 0.5, nudge_x = 0.3,
                  colour = "black", size = 3) +
-    geom_sf(data = bry, color = "grey", 
+    geom_sf(data = bry, color = "black", 
             fill = "transparent", linewidth = 0.3) +
     annotate("text", x = c(35.69, 37.43, 32.48), y = c(-2.57, -9.18, -6.9), 
              label = c(1, 2, 3), fontface = 'bold', size = 4) +
@@ -553,295 +557,347 @@ ggsave(file.path(fg_path, "figure6_connectivity.png"),
        units = "mm", dpi = 500)
 ```
 
+### Figure S8: separate maps of cropland coverage and landscape connectivity for Figure 6.
+
+```{r}
+# Convert maps
+## Read the layers
+current_map <- rast(
+    file.path(cnt_exp_path, "connectivity_long.tif"))
+cropland <- rast(file.path(cnt_path, "cropland_ratio.tif")) %>% 
+    mask(current_map)
+
+## Plot it
+legend2 <- ggplot() +
+    geom_spatraster(data = cropland * 100) +
+    scale_fill_material("light-blue", name = "Cropland (%)", na.value = NA) +
+    theme(plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(-1, 4)),
+          legend.key.height = unit(0.4,"cm"),
+          legend.box.margin = margin(rep(-1, 4)),
+          legend.background = element_rect(fill='transparent'))
+legend2 <- get_legend(legend2)
+
+### Put everything together
+g1 <- ggplot() +
+    geom_spatraster(data = cropland, show.legend = FALSE) +
+    scale_fill_material("light-blue", name = "Cropland (%)", na.value = NA) +
+    geom_sf(data = habitat_clusters, fill = "#FAE48BFF", 
+            color = "#FAE48BFF", linewidth = 0.4) +
+    geom_sf(data = waters %>% filter(name == "Lake Victoria"), 
+            color = "#00A087FF", fill = "transparent", linewidth = 0.2) +
+    geom_sf_text(data = waters %>% filter(name == "Lake Victoria"),
+                 aes(label = name), nudge_y = 0.5, nudge_x = 0.3,
+                 colour = "black", size = 3) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent", linewidth = 0.3) +
+    annotate("text", x = c(35.69, 37.43, 32.48), y = c(-2.57, -9.18, -6.9), 
+             label = c(1, 2, 3), fontface = 'bold', size = 4) +
+    annotation_custom(grob = legend2, 
+                      xmin = 32, xmax = 32,
+                      ymin = -11.1, ymax = -11.1) +
+    xlab("") + ylab("") +
+    bi_theme(bg_color = "transparent") +
+    theme(plot.margin = unit(-c(.7, 1.2, 1.0, 2.2), "cm"))
+
+legend2 <- ggplot() +
+    geom_spatraster(data = current_map) +
+    scale_fill_continuous_sequential(
+        palette = "OrYel", name = "Landscape\nconnectivity (0-1)", 
+        na.value = NA) +
+    theme(plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(-1, 4)),
+          legend.key.height = unit(0.4,"cm"),
+          legend.box.margin = margin(rep(-1, 4)),
+          legend.background = element_rect(fill='transparent'))
+legend2 <- get_legend(legend2)
+
+g2 <- ggplot() +
+    geom_spatraster(data = current_map, show.legend = FALSE) +
+    scale_fill_continuous_sequential(
+        palette = "OrYel", name = "Landscape\nconnectivity (%)", 
+        na.value = NA) + # OrYel
+    geom_sf(data = habitat_clusters, fill = "#D0DFE6FF", 
+            color = "#D0DFE6FF", linewidth = 0.4) +
+    geom_sf(data = waters %>% filter(name == "Lake Victoria"), 
+            color = "#00A087FF", fill = "transparent", linewidth = 0.2) +
+    geom_sf_text(data = waters %>% filter(name == "Lake Victoria"),
+                 aes(label = name), nudge_y = 0.5, nudge_x = 0.3,
+                 colour = "black", size = 3) +
+    geom_sf(data = bry, color = "black", 
+            fill = "transparent", linewidth = 0.3) +
+    annotate("text", x = c(35.69, 37.43, 32.48), y = c(-2.57, -9.18, -6.9), 
+             label = c(1, 2, 3), fontface = 'bold', size = 4) +
+    annotation_custom(grob = legend2, 
+                      xmin = 32, xmax = 32,
+                      ymin = -11, ymax = -11) +
+    xlab("") + ylab("") +
+    bi_theme(bg_color = "transparent") +
+    theme(plot.margin = unit(-c(.7, 1.2, 1.0, 2.2), "cm"))
+
+ggarrange(g1, g2, ncol = 2, nrow = 1, 
+          labels = c("A", 'B'),
+          font.label = list(size = 14, color = "black", face = "bold"))
+
+ggsave(file.path(fg_path, "figureS8_separate_figure6.png"), 
+       bg = "white", width = 190, height = 95, 
+       units = "mm", dpi = 500)
+```
+
 ### Figure 7: short-distance landscape connectivity
 
 ```{r}
-# Habitat clusters
-habitat_clusters <- rast(file.path(cnt_path, "habitat_clusters.tif"))
-habitat_clusters[habitat_clusters == 0] <- NA
-habitat_clusters <- as.polygons(habitat_clusters)
-habitat_clusters <- st_as_sf(habitat_clusters)
-
-# Figure 7-1
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c1 <- pas %>% filter(cluster == 1) %>% unique()
-pas_to_show <- pas_c1 %>% 
-    filter(park_name %in% c("Serengeti National Park",
-                       "Ngorongoro Conservation Area",
-                       "Tarangire National Park",
-                       "Lake Manyara National Park"))
-pas_to_show$park_name <- c("Serengeti NP",
-                       "Ngorongoro CA",
-                       "Tarangire NP",
-                       "Lake Manyara NP")
-
-cluster <- habitat_clusters %>% filter(habitat_clusters == 1)
-bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c1 <- read_sf(file.path(cls_path, "hotspots_conservation.shp")) %>% 
-    mutate(id = letters[id])
-
-# Scenarios
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster1.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1[is.na(current_map_s1)] <- 0
-
-current_map_s2 <- rast(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster1.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s2[is.na(current_map_s2)] <- 0
-current_change <- current_map_s2 / current_map_s1
-current_change <- mask(crop(current_change, bry), bry)
-current_change <- st_as_stars(current_change)
-
-# Reformat the cuts to make the map looks pretty
-breaks <- seq(0, 2, 0.2)
-labels <- sprintf("(%.2f,%.2f]", breaks[-11], breaks[-1])
-labels <- c("= 0.0", labels, "> 2.0")
-current_change <- cut(current_change, breaks = c(-Inf, breaks, Inf),
-                      labels = labels, include.lowest = FALSE)
-
-g1 <- ggplot() +
-    geom_stars(data = current_change, na.action = na.omit) +
-    scale_fill_discrete_diverging(
-        palette = "Blue-Red 2") +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c1, color = "yellow", 
-            fill = "transparent", linewidth = 0.4) +
-    geom_sf_text_repel(data = hotspots_c1,
-                 aes(label = id), colour = "black", size = 5, 
-                 fontface = "bold",
-                 nudge_y = 0, nudge_x = -0.4, force = 100) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    geom_sf(data = cluster, color = "black", 
-            fill = "transparent", linewidth = 0.5, linetype = "dashed") +
-    geom_sf_text_repel(data = pas_to_show,
-                 aes(label = park_name), colour = "black", size = 3, 
-                 fontface = "bold",
-                 nudge_y = 0.1, nudge_x = 1, force = 100) +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(-0.4, 4), "cm"))
-
-
-# Figure 7-2
-cls_path <- file.path(cnt_exp_path, "cluster_2")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c2 <- pas %>% filter(cluster == 2) %>% unique()
-pas_to_show <- pas_c2 %>% 
-    filter(park_name %in% c("Selous G.R"))
-
-bry <- st_union(pas_c2) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-cluster <- habitat_clusters %>% filter(habitat_clusters == 2)
-hotspots_c2 <- read_sf(file.path(cls_path, "hotspots_conservation_c2.shp")) %>% 
-    mutate(id = letters[id])
-
-# Scenarios
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster2.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1[is.na(current_map_s1)] <- 0
-
-current_map_s2 <- rast(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster2.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s2[is.na(current_map_s2)] <- 0
-current_change <- current_map_s2 / current_map_s1
-current_change <- mask(crop(current_change, bry), bry)
-current_change <- st_as_stars(current_change)
-
-# Reformat the cuts to make the map looks pretty
-breaks <- seq(0, 2, 0.2)
-labels <- sprintf("(%.2f,%.2f]", breaks[-11], breaks[-1])
-labels <- c("= 0.0", labels, "> 2.0")
-current_change <- cut(current_change, breaks = c(-Inf, breaks, Inf),
-                      labels = labels, include.lowest = FALSE)
-# Plot
-g2 <- ggplot() +
-    geom_stars(data = current_change, na.action = na.omit) +
-    scale_fill_discrete_diverging(
-        palette = "Blue-Red 2") +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c2, color = "yellow", 
-            fill = "transparent", linewidth = 0.6) +
-    geom_sf_text_repel(data = hotspots_c2,
-                 aes(label = id), colour = "black", size = 5, 
-                 fontface = "bold",
-                 nudge_y = 0, nudge_x = -0.4, force = 100) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    geom_sf(data = cluster, color = "black", 
-            fill = "transparent", linewidth = 0.5, linetype = "dashed") +
-    geom_sf_text(data = pas_to_show,
-                 aes(label = park_name), colour = "black", size = 3,
-                 fontface = "bold") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(-0.4, 4), "cm"))
-
-# Figure 7-3
-cls_path <- file.path(cnt_exp_path, "cluster_3")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c3 <- pas %>% filter(cluster == 3) %>% unique()
-pas_to_show <- pas_c3 %>% 
-    filter(park_name %in% c("Wembere GCA", "Rungwa (N) O.A."))
-
-bry <- st_union(pas_c3) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-cluster <- habitat_clusters %>% filter(habitat_clusters == 3)
-hotspots_c3 <- read_sf(file.path(cls_path, "hotspots_conservation_c3.shp")) %>% 
-    mutate(id = letters[id])
-
-# Scenarios
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster3.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1[is.na(current_map_s1)] <- 0
-
-current_map_s2 <- rast(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster3.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s2[is.na(current_map_s2)] <- 0
-current_change <- current_map_s2 / current_map_s1
-current_change <- mask(crop(current_change, bry), bry)
-current_change <- st_as_stars(current_change)
-
-# Reformat the cuts to make the map looks pretty
-breaks <- seq(0, 2, 0.2)
-labels <- sprintf("(%.2f,%.2f]", breaks[-11], breaks[-1])
-labels <- c("= 0.0", labels, "> 2.0")
-current_change <- cut(current_change, breaks = c(-Inf, breaks, Inf),
-                      labels = labels, include.lowest = FALSE)
-# Plot
-g3 <- ggplot() +
-    geom_stars(data = current_change, na.action = na.omit) +
-    scale_fill_discrete_diverging(
-        palette = "Blue-Red 2") +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c3, color = "yellow", 
-            fill = "transparent", linewidth = 0.6) +
-    geom_sf_text_repel(data = hotspots_c3,
-                 aes(label = id), colour = "black", size = 5, 
-                 fontface = "bold",
-                 nudge_y = 0, nudge_x = -0.4, force = 100) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    geom_sf(data = cluster, color = "black", 
-            fill = "transparent", linewidth = 0.5, linetype = "dashed") +
-    geom_sf_text_repel(data = pas_to_show,
-                 aes(label = park_name), colour = "black", size = 3, 
-                 fontface = "bold",
-                 nudge_y = 0, nudge_x = -0.8, force = 100) +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(c(-1, rep(-0.4, 3)), "cm"))
-
-# Make the common legend
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster1.tif"))
-values(current_map_s1) <- c(-1, 1, 3)
-current_map_s1 <- st_as_stars(current_map_s1)
-
+# Reload the layers
+habitat_clusters <- st_read(file.path(cnt_path, "habitat_clusters.geojson"))
+pas <- st_read(file.path(cnt_path, "pas.geojson"))
 
 legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_continuous_diverging(
-        palette = "Blue-Red 2", breaks = c(-1, 1, 3), 
-        labels = c("Drop (= 0)", "Keep (= 1)", "Rise (> 2)"),
-        name = "Current density change\n ") +
-    geom_sf(data = pas_c1, aes(color = "Protected areas", 
-                               linetype =  "Protected areas"), 
-            fill = "transparent") +
-    geom_sf(data = bry, aes(color = "Critical regions",
-                            linetype = "Critical regions"), 
-            fill = "transparent") +
-    geom_sf(data = cluster, aes(color = "Habitat cluster boundary",
-                                linetype = "Habitat cluster boundary"), 
-            fill = "transparent") +
-    scale_color_manual(NULL, values = c("gray40", "yellow", "black"),
-                      breaks = c('Protected areas', "Critical regions",
-                                 "Habitat cluster boundary"),
-                      guide = guide_legend(order = 2)) +
-    scale_linetype_manual(NULL, values = c("solid", "solid", "dashed"),
-                      breaks = c('Protected areas', "Critical regions",
-                                 "Habitat cluster boundary"),
-                      guide = guide_legend(order = 2)) +
-    theme(text = element_text(size = 16),
+    geom_sf(data = pas, aes(color = "Protected areas", 
+                            linetype =  "Protected areas"), 
+            fill = "transparent", linewidth = 0.2) +
+    geom_sf(data = habitat_clusters, 
+            aes(color = "Habitat cluster boundary",
+                linetype = "Habitat cluster boundary"), 
+            fill = "transparent", linewidth = 0.2) +
+    scale_color_manual(NULL, values = c("gray40", "black"),
+                       breaks = c('Protected areas', 
+                                  "Habitat cluster boundary"),
+                       guide = guide_legend(order = 2, byrow = TRUE)) +
+    scale_linetype_manual(NULL, values = c("solid", "dashed"),
+                          breaks = c('Protected areas', 
+                                     "Habitat cluster boundary"),
+                          guide = guide_legend(order = 2, byrow = TRUE)) +
+    theme(text = element_text(size = 12),
           legend.position = "right",
           legend.spacing.y = unit(0.1, 'cm'),
           legend.box = "vertical",
           plot.margin = unit(rep(-1, 4), "cm"),
-          legend.key.height = unit(0.4,"cm"),
-          legend.key.width = unit(0.8,"cm"),
-          legend.margin = margin(rep(0.2, 4)),
-          legend.box.margin = margin(rep(0.1, 4)),
+          legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.3,"cm"),
+          legend.margin = margin(rep(0.3, 4)),
+          legend.box.margin = margin(rep(0.2, 4)),
           legend.title = element_text(size = 12))
 legend_common <- get_legend(legend_common)
 
-ggarrange(
-    ggarrange(
-        g1 + theme(legend.position = "none"), 
-        g2 + theme(legend.position = "none"), 
-        g3 + theme(legend.position = "none"), ncol = 3,
-        labels = c("1", '2', '3'),
-        font.label = list(size = 12, color = "black", face = "bold")), 
-    ggplot() + theme_void(),
-    legend_common, ggplot() + theme_void(),
-    nrow = 4, heights = c(3, -0.3, 1, -0.2))
+legend <- bi_legend(pal = "BlueOr",
+                    dim = 4,
+                    xlab = "  Connectivity",
+                    ylab = "  Farm coverage",
+                    size = 9, arrows = TRUE,  pad_width = 0.1) +
+    theme(panel.background = element_rect(fill = "transparent", colour = NA),  
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          axis.title = element_text(size = 9, color = 'black'))
+legend <- ggplotGrob(legend)
 
-ggsave(file.path(fg_path, "figure7_clusters_190w_80h_500dpi_1c.png"), 
-       bg = "white", width = 190, height = 80, 
-       units = "mm", dpi = 500)
+fg_list <- lapply(1:3, function(cluster_id){
+    # Read layers
+    current_map <- rast(file.path(cnt_exp_path, sprintf("connectivity_c%s.tif", cluster_id)))
+    cropland <- rast(file.path(cnt_path, "cropland_ratio.tif")) %>% 
+        crop(current_map) %>% mask(current_map)
+    
+    ## Convert values to biviariates
+    data <- values(c(current_map, cropland)) %>% data.frame()
+    names(data) <- c("Connectivity", "Cropland")
+    data <- data %>% na.omit()
+    
+    # Manually set the cuts
+    data$Connectivity <- cut(
+        data$Connectivity, breaks = classIntervals(data$Connectivity, n = 4, style = "quantile")$brks,
+        include.lowest = TRUE, dig.lab = 3)
+    brks <- classIntervals(data$Cropland[data$Cropland > 0], n = 4, style = "quantile")$brks
+    data$Cropland <- cut(data$Cropland, breaks = c(0, brks[-1]),
+                         include.lowest = TRUE, dig.lab = 3)
+    data <- bi_class(data, x = Connectivity, y = Cropland, style = "quantile", dim = 4)
+    
+    ## Burn the values into a new layer
+    rst <- current_map
+    vals <- values(rst)
+    vals[!is.na(vals)] <- data$bi_class
+    values(rst) <- vals
+    rst[rst == "NaN"] <- NA
+    
+    # Read boundaries
+    cluster <- habitat_clusters %>% filter(cluster == cluster_id)
+    pas_c <- pas %>% filter(cluster == cluster_id)
+    if (cluster_id == 1){
+        pas_to_show <- pas_c %>% 
+            filter(park_name %in% c(
+                "Serengeti National Park",
+                "Ngorongoro Conservation Area",
+                "Tarangire National Park",
+                "Lake Manyara National Park"))
+        pas_to_show$park_name <- c(
+            "Serengeti NP",
+            "Ngorongoro CA",
+            "Tarangire NP",
+            "Lake Manyara NP")
+    } else if (cluster_id == 2){
+        pas_to_show <- pas_c %>% 
+            filter(park_name %in% c("Selous G.R"))
+    } else {
+        pas_to_show <- pas_c %>% 
+            filter(park_name %in% c("Wembere GCA", "Rungwa (N) O.A."))
+    }
+    
+    bry <- st_union(pas_c) %>% st_convex_hull() %>% 
+        st_as_sf() %>% rename(geometry = x)
+    
+    # Plot
+    p <- ggplot() +
+        geom_spatraster(data = rst, show.legend = FALSE) +
+        bi_scale_fill(pal = "BlueOr", dim = 4, na.value = NA) +
+        geom_sf(data = pas_c, color = "gray40", linewidth = 0.4,
+                fill = "transparent") +
+        geom_sf(data = bry, color = "black", 
+                fill = "transparent") +
+        geom_sf(data = cluster, color = "black", 
+                fill = "transparent", linewidth = 0.4, linetype = "dashed")
+    
+    if (cluster_id == 1){
+        p <- p + geom_sf_text_repel(data = pas_to_show, fontface='bold',
+                                    aes(label = park_name), colour = "black", size = 3, 
+                                    nudge_y = 0.1, nudge_x = 1, force = 100) +
+            annotation_custom(grob = legend, 
+                              xmin = 33.6, xmax = 35.55,
+                              ymin = -5.7, ymax = -3.75)
+    } else {
+        p <- p + geom_sf_text(data = pas_to_show, fontface='bold',
+                              aes(label = park_name), colour = "black", size = 3)
+        
+        if (cluster_id == 3){
+            p <- p +
+                annotation_custom(grob = legend_common, 
+                                  xmin = 32.8, xmax = 34.8,
+                                  ymin = -4, ymax = -3)
+        }
+    }
 
-ggarrange(
-    ggarrange(
-        g1 + theme(legend.position = "none"), 
-        g2 + theme(legend.position = "none"), 
-        g3 + theme(legend.position = "none"), 
-        legend_common, ncol = 2, nrow = 2, 
-        labels = c("1", '2', '3', ""),
-        font.label = list(size = 12, color = "black", face = "bold")))
+    p + xlab("") + ylab("") +
+        bi_theme(bg_color = "white") +
+        # unit(c(-0.2, -0.4, -1, -1.8), "cm")
+        theme(plot.margin = unit(c(-0.2, -0.5, -1.1, -1.8), "cm"),
+              panel.background = element_rect(fill = "transparent", colour = NA),  
+              plot.background = element_rect(fill = "transparent", colour = NA))
+})
 
-ggsave(file.path(fg_path, "figure7_clusters_170w_180h_500dpi_1c.png"), 
-       bg = "white", width = 190, height = 170, 
+ggarrange(plotlist = fg_list, ncol = 3, nrow = 1, 
+          labels = c("1", '2', '3'), label.x = c(0, 0.28, -0.08),
+          font.label = list(size = 14, color = "black", face = "bold"))
+
+ggsave(file.path(fg_path, "figure7_clusters.png"), 
+       bg = "white", width = 190, height = 70, 
        units = "mm", dpi = 500)
 ```
 
-### Supplementary Figure S2: examples of barrier pixels
+### Figure S9: seperate short-distance connectivity
 
-This figure shows the examples of pixels that are selected as barriers for elephant movement. NOTE that the objective of selecting these pixels is to help us understand the potential impacts of human activities on elephant movement. These are not necessarily cannot be used by elephants. First, humans will use strategies to protect their houses and farms, so even though the landscape can be used by elephants, they may not pass. Second, once elephants step in these land, human-elephant conflicts usually happen.
+```{r}
+# Reload the layers
+habitat_clusters <- st_read(file.path(cnt_path, "habitat_clusters.geojson"))
+pas <- st_read(file.path(cnt_path, "pas.geojson"))
 
-### Supplementary Figure S3: protected areas (PAs)
+legend1 <- ggplot() +
+    geom_spatraster(data = cropland * 100) +
+    scale_fill_material("light-blue", name = "Cropland (%)", na.value = NA) +
+    theme(plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(-1, 4)),
+          legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.2,"cm"),
+          legend.box.margin = margin(rep(-1, 4)),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
+          legend.background = element_rect(fill='transparent'))
+legend1 <- get_legend(legend1)
+
+legend2 <- ggplot() +
+    geom_spatraster(data = current_map) +
+    scale_fill_continuous_sequential(
+        palette = "OrYel", name = "Landscape\nconnectivity (0-1)", 
+        na.value = NA) +
+    theme(plot.margin = unit(rep(0, 4), "cm"),
+          legend.margin = margin(rep(-1, 4)),
+          legend.key.height = unit(0.3,"cm"),
+          legend.key.width = unit(0.2,"cm"),
+          legend.box.margin = margin(rep(-1, 4)),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
+          legend.background = element_rect(fill='transparent'))
+legend2 <- get_legend(legend2)
+
+fg_list <- lapply(1:3, function(cluster_id){
+    # Read layers
+    current_map <- rast(file.path(cnt_exp_path, sprintf("connectivity_c%s.tif", cluster_id)))
+    cropland <- rast(file.path(cnt_path, "cropland_ratio.tif")) %>% 
+        crop(current_map) %>% mask(current_map)
+    
+    # Read boundaries
+    cluster <- habitat_clusters %>% filter(cluster == cluster_id)
+    pas_c <- pas %>% filter(cluster == cluster_id)
+    bry <- st_union(pas_c) %>% st_convex_hull() %>% 
+        st_as_sf() %>% rename(geometry = x)
+    
+    # Plot
+    p1 <- ggplot() +
+        geom_spatraster(data = cropland, show.legend = FALSE) +
+        scale_fill_material("light-blue", name = "Cropland (%)", na.value = NA) +
+        geom_sf(data = pas_c, color = "gray40", linewidth = 0.4,
+                fill = "transparent") +
+        geom_sf(data = bry, color = "black", 
+                fill = "transparent") +
+        geom_sf(data = cluster, color = "black", 
+                fill = "transparent", linewidth = 0.4, linetype = "dashed") +
+        xlab("") + ylab("") +
+        bi_theme(bg_color = "white") +
+        # unit(c(-0.2, -0.4, -1, -1.8), "cm")
+        theme(plot.margin = unit(c(-0.2, -0.5, -1.1, -1.8), "cm"),
+              panel.background = element_rect(fill = "transparent", colour = NA),  
+              plot.background = element_rect(fill = "transparent", colour = NA))
+    
+    p2 <- ggplot() +
+        geom_spatraster(data = current_map, show.legend = FALSE) +
+        scale_fill_continuous_sequential(
+            palette = "OrYel", name = "Landscape\nconnectivity (0-1)", 
+            na.value = NA) +
+        geom_sf(data = pas_c, color = "gray40", linewidth = 0.4,
+                fill = "transparent") +
+        geom_sf(data = bry, color = "black", 
+                fill = "transparent") +
+        geom_sf(data = cluster, color = "black", 
+                fill = "transparent", linewidth = 0.4, linetype = "dashed") +
+        xlab("") + ylab("") +
+        bi_theme(bg_color = "white") +
+        # unit(c(-0.2, -0.4, -1, -1.8), "cm")
+        theme(plot.margin = unit(c(-0.2, -0.5, -1.1, -1.8), "cm"),
+              panel.background = element_rect(fill = "transparent", colour = NA),  
+              plot.background = element_rect(fill = "transparent", colour = NA))
+    
+    if (cluster_id == 1){
+        p1 <- p1 + 
+            annotation_custom(grob = legend1, 
+                              xmin = 33.6, xmax = 35.55,
+                              ymin = -5.7, ymax = -3.75)
+        
+        p2 <- p2 + 
+            annotation_custom(grob = legend2, 
+                              xmin = 33.6, xmax = 35.55,
+                              ymin = -5.7, ymax = -3.75)
+    }
+    
+    label.x <- ifelse(cluster_id == 1, -0.04, ifelse(cluster_id == 2, 0.22, -0.12))
+    
+    ggarrange(p1, p2, ncol = 1, nrow = 2, label.x = label.x, 
+              labels = sprintf("%s.%s", cluster_id, c("A", "B")), 
+              font.label = list(size = 14, color = "black", face = "bold"))
+})
+
+ggarrange(plotlist = fg_list, ncol = 3, nrow = 1)
+
+ggsave(file.path(fg_path, "figureS9_separate_figure7.png"), 
+       bg = "white", width = 190, height = 130, 
+       units = "mm", dpi = 500)
+```
+
+### Supplementary Figure S2: protected areas (PAs)
 
 ```{r}
 study_area <- read_sf(
@@ -979,7 +1035,7 @@ ggsave(file.path(fg_path, "figureS2_PA.png"),
        units = "mm", dpi = 500)
 ```
 
-### Supplementary Figure S4: effect of sampling ratio
+### Supplementary Figure S3: effect of sampling ratio
 
 ```{r}
 evals <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
@@ -1047,12 +1103,12 @@ ggplot(evals,
           strip.text.x = element_text(size = 12, face = "bold")) +
     guides(fill = guide_legend(nrow = 1))
 
-ggsave(file.path(fg_path, "figure3_pseudo_sample_190w_95h_500dpi_1.5c.png"), 
+ggsave(file.path(fg_path, "figureS3_pseudo_sample_190w_95h_500dpi_1.5c.png"), 
        bg = "white", width = 190, height = 95, 
        units = "mm", dpi = 500)
 ```
 
-### Supplementary Figure S5: performance of regional SDM at different scales
+### Supplementary Figure S4: performance of regional SDM at different scales
 
 ```{r}
 library(tidyverse)
@@ -1154,12 +1210,12 @@ annotate_figure(figure,
                                    color = "black", 
                                    size = 10, vjust = -1))
 
-ggsave(file.path(fg_path, "figure4_eval_coarse_90w_80h_500dpi_1c.png"), 
+ggsave(file.path(fg_path, "figureS4_eval_coarse_90w_80h_500dpi_1c.png"), 
        bg = "white", width = 90, height = 80, 
        units = "mm", dpi = 500)
 ```
 
-### Supplementary Figure S6-S8: Response curve of all variables at coarse scale
+### Supplementary Figure S5-S7: Response curve of all variables at coarse scale
 
 ```{r}
 # Types
@@ -1342,772 +1398,20 @@ ggarrange(plotlist = fg_type_a,
           ncol = 3, nrow = 5,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "figureS6_variable_response_a.png"), 
+ggsave(file.path(fg_path, "figureS5_variable_response_a.png"), 
        width = 6.5, height = 8.5, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_b, 
           ncol = 2, nrow = 2,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "figureS7_variable_response_b.png"), 
+ggsave(file.path(fg_path, "figureS6_variable_response_b.png"), 
        width = 4.3, height = 4, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_c, 
           ncol = 2, nrow = 2,
           common.legend = TRUE)
 
-ggsave(file.path(fg_path, "figureS8_variable_response_c.png"), 
+ggsave(file.path(fg_path, "figureS7_variable_response_c.png"), 
        width = 4.3, height = 4, dpi = 500, bg = "white")
-```
-
-### Figure S9
-
-This is the reference figure of landscape connectivity between habitats without setting any barriers.
-
-```{r}
-# Define colors
-col_habitats <- "#1b9e77"
-
-# Read data
-bry <- read_sf(file.path(vct_path, "mainland_tanzania.geojson"))
-habitat_clusters <- read_stars(file.path(cnt_path, "habitat_clusters.tif"))
-habitat_clusters[habitat_clusters == 0] <- NA
-habitat_clusters[habitat_clusters > 0] <- "Habitat cluster"
-
-# No barrier reference
-current_map_ref <- read_stars(
-    file.path(cnt_exp_path, "connectivity_no_barriers.tif"))
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.02) & 
-                     values <= quantile(values, 0.98)]
-breaks_ref <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.3f,%.3f]", breaks_ref$brks, c(breaks_ref$brks[-1], 1))
-current_map_ref <- cut(current_map_ref, breaks = c(breaks_ref$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_ref, na.action = na.omit) +
-    scale_fill_brewer(
-        "Connectivity\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = habitat_clusters, 
-               na.action = na.omit, show.legend = FALSE) +
-    scale_fill_manual("", values = col_habitats,
-                      na.translate = FALSE) +
-    geom_sf(data = bry, color = "grey", 
-            fill = "transparent", linewidth = 0.5) +
-    annotate("text", x = c(35.69, 37.43, 32.48), y = c(-2.57, -9.18, -6.9), 
-             label = c(1, 2, 3)) +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "none",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(-0.5, 4), "cm"))
-
-current_map_s1 <- read_stars(
-    file.path(cnt_exp_path, "connectivity_scenario1.tif"))
-legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_distiller("Current density\n ",
-                         palette = "BuPu", breaks = c(0, 0.5, 1), 
-                         labels = c("Low", "Med", "High"), direction = 1) +
-    theme(text = element_text(size = 14),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0.3, 'cm'),
-          legend.box = "vertical",
-          legend.key.height = unit(0.3,"cm"),
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.margin = margin(rep(0.1, 4)),
-          legend.box.margin = margin(rep(-0.1, 4)),
-          legend.title = element_text(size = 12))
-legend_common <- get_legend(legend_common)
-
-ggarrange(g_s1, legend_common, nrow = 2, 
-          heights = c(0.9, 0.1))
-
-ggsave(file.path(fg_path, "figureS9_connectivity_bw_wo_barriers.png"), 
-       width = 4, height = 4.3, dpi = 500, bg = "white")
-```
-
-### Figure S10 & S11: seperate short-distance connectivity
-
-Figure S10-11 shows the simulated landscape connectivity for short-distance move.
-
-#### Figure S10/11-1 
-
-The figure for habitat cluster 1.
-
-```{r}
-norm_rast <- function(s){
-    minmax(s, compute = TRUE)
-    nx <- minmax(s)    
-    (s - nx[1,]) / (nx[2,] - nx[1,])
-}
-
-library(classInt)
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c1 <- pas %>% filter(cluster == 1)
-bry <- st_union(pas_c1) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c1 <- read_sf(file.path(cls_path, "hotspots_conservation.shp"))
-
-# Scenario 1
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster1.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
-blocks_s1 <- rast(
-    file.path(cnt_path, "blocks_s1.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s1[blocks_s1 == 3] <- 2
-blocks_s1[blocks_s1 == 0] <- NA
-blocks_s1 <- st_as_stars(blocks_s1)
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- rast(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster1.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s2 <- st_as_stars(norm_rast(current_map_s2))
-blocks_s2 <- rast(
-    file.path(cnt_path, "blocks_s2.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s2[blocks_s2 == 3] <- 2
-blocks_s2[blocks_s2 == 0] <- NA
-blocks_s2 <- st_as_stars(blocks_s2)
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c1, color = "blue", 
-            fill = "transparent", linewidth = 0.6) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c1 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("1.A", "1.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-
-# No barrier reference
-current_map_ref <- rast(
-    file.path(cls_path, "original",
-              "cum_curmap_original_cluster1.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_ref <- st_as_stars(norm_rast(current_map_ref))
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_ref_c1 <- ggplot() +
-    geom_stars(data = current_map_ref, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_sf(data = pas_c1, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "none",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-```
-
-#### Figure S10/11-2
-
-The figure for habitat Cluster 2.
-
-```{r}
-cls_path <- file.path(cnt_exp_path, "cluster_2")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c2 <- pas %>% filter(cluster == 2)
-bry <- st_union(pas_c2) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c2 <- read_sf(file.path(cls_path, "hotspots_conservation_c2.shp"))
-
-# Scenario 1
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster2.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
-blocks_s1 <- rast(
-    file.path(cnt_path, "blocks_s1.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s1[blocks_s1 == 3] <- 2
-blocks_s1[blocks_s1 == 0] <- NA
-blocks_s1 <- st_as_stars(blocks_s1)
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- rast(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster2.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s2 <- st_as_stars(norm_rast(current_map_s2))
-blocks_s2 <- rast(
-    file.path(cnt_path, "blocks_s2.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s2[blocks_s2 == 3] <- 2
-blocks_s2[blocks_s2 == 0] <- NA
-blocks_s2 <- st_as_stars(blocks_s2)
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c2, color = "blue", 
-            fill = "transparent", linewidth = 0.8) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c2 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("2.A", "2.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-
-# No barrier reference
-current_map_ref <- rast(
-    file.path(cls_path, "original",
-              "cum_curmap_original_cluster2.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_ref <- st_as_stars(norm_rast(current_map_ref))
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_ref_c2 <- ggplot() +
-    geom_stars(data = current_map_ref, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_sf(data = pas_c2, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "none",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-```
-
-#### Figure S10/11-3
-
-The figure for habitat Cluster 3.
-
-```{r}
-cls_path <- file.path(cnt_exp_path, "cluster_3")
-
-# Borders
-pas <- read_sf(file.path(cnt_path, "pas.geojson"))
-pas_c3 <- pas %>% filter(cluster == 3)
-bry <- st_union(pas_c3) %>% st_convex_hull() %>% 
-    st_as_sf() %>% rename(geometry = x)
-hotspots_c3 <- read_sf(file.path(cls_path, "hotspots_conservation_c3.shp"))
-
-# Scenario 1
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster3.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
-blocks_s1 <- rast(
-    file.path(cnt_path, "blocks_s1.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s1[blocks_s1 == 3] <- 2
-blocks_s1[blocks_s1 == 0] <- NA
-blocks_s1 <- st_as_stars(blocks_s1)
-names(blocks_s1) <- "blocks"
-blocks_s1 <- blocks_s1 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s1) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks_s1 <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks_s1$brks, c(breaks_s1$brks[-1], 1))
-current_map_s1 <- cut(current_map_s1, breaks = c(breaks_s1$brks, 1),
-                      labels = labels)
-# Plot
-g_s1 <- ggplot() +
-    geom_stars(data = current_map_s1, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s1, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-# Scenario 2
-current_map_s2 <- read_stars(
-    file.path(cls_path, "human_block_complete",
-              "cum_curmap_human_block_complete_cluster3.tif")) %>% 
-    st_crop(bry)
-blocks_s2 <- rast(
-    file.path(cnt_path, "blocks_s2.tif")) %>% 
-    mask(bry) %>% trim()
-blocks_s2[blocks_s2 == 3] <- 2
-blocks_s2[blocks_s2 == 0] <- NA
-blocks_s2 <- st_as_stars(blocks_s2)
-names(blocks_s2) <- "blocks"
-blocks_s2 <- blocks_s2 %>% 
-    mutate(blocks = factor(
-        blocks, levels = 1:2,
-        labels = c("Intensive cropland", "With dense settlement"))) %>% 
-    dplyr::select(blocks)
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_s2) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_s2 <- cut(current_map_s2, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_s2 <- ggplot() +
-    geom_stars(data = current_map_s2, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2, show.legend = FALSE) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE) +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = hotspots_c3, color = "blue", 
-            fill = "transparent", linewidth = 0.8) +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-
-plot_c3 <- ggarrange(g_s1 + theme(legend.position = "none"), 
-                     g_s2 + theme(legend.position = "none"), 
-                     labels = c("3.A", "3.B"),
-                     font.label = list(size = 12),
-                     nrow = 2)
-
-# No barrier reference
-current_map_ref <- rast(
-    file.path(cls_path, "original",
-              "cum_curmap_original_cluster3.tif")) %>% 
-    crop(bry) %>% mask(bry)
-current_map_ref <- st_as_stars(norm_rast(current_map_ref))
-
-# Reformat the cuts to make the map looks pretty
-values <- as.data.frame(current_map_ref) %>% na.omit() %>% pull(3)
-values <- values[values >= quantile(values, 0.01) & 
-                     values <= quantile(values, 0.99)]
-breaks <- classIntervals(round(values, 3), 
-                         n = 7, style = "equal")
-labels <- sprintf("(%.2f,%.2f]", breaks$brks, c(breaks$brks[-1], 1))
-current_map_ref <- cut(current_map_ref, breaks = c(breaks$brks, 1),
-                      labels = labels)
-# Plot
-g_ref_c3 <- ggplot() +
-    geom_stars(data = current_map_ref, na.action = na.omit) +
-    scale_fill_brewer(
-        "Current density\nscenario 1\n(0-1)", direction = 1,
-        palette = "BuPu",
-        na.translate = FALSE) +
-    guides(fill = guide_legend(nrow = 4, byrow = TRUE)) +
-    ggnewscale::new_scale_fill() +
-    geom_sf(data = pas_c3, color = "gray40", 
-            fill = "transparent") +
-    geom_sf(data = bry, color = "black", 
-            fill = "transparent") +
-    coord_sf() + theme_void() +
-    theme(text = element_text(size = 12),
-          legend.position = "none",
-          legend.spacing.y = unit(0, 'cm'),
-          plot.margin = unit(rep(0, 4), "cm"))
-```
-
-#### Plot together for Figure 10
-
-```{r}
-# Make the common legend
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster1.tif"))
-current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
-legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_distiller("Current density\n ",
-        palette = "BuPu", breaks = c(0, 0.5, 1), 
-        labels = c("Low", "Med", "High"), direction = 1) +
-    ggnewscale::new_scale_fill() +
-    geom_sf(data = pas_c3, aes(color = "Protected areas"), 
-            fill = "transparent") +
-    scale_color_manual(NULL, values = c("gray40"),
-                      breaks = c('Protected areas'),
-                      guide = guide_legend(order = 1)) +
-    theme(text = element_text(size = 14),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.box = "vertical",
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.key.height = unit(0.3,"cm"),
-          legend.key.width = unit(0.4,"cm"),
-          legend.margin = margin(rep(0.2, 4)),
-          legend.box.margin = margin(rep(0.1, 4)),
-          legend.title = element_text(size = 11))
-legend_common <- get_legend(legend_common)
-
-ggarrange(ggarrange(g_ref_c1, g_ref_c2, 
-                    g_ref_c3, ncol = 3,
-                    labels = c("1", "2", "3"),
-                     font.label = list(size = 12)), 
-          legend_common, ggplot() + theme_void(),
-          nrow = 3, heights = c(0.9, 0.1, 0.05))
-
-ggsave(file.path(fg_path, "figureS10_clusters_190w_90h_500dpi_1c.png"), 
-       bg = "white", width = 190, height = 90, 
-       units = "mm", dpi = 500)
-```
-
-#### Plot together for Figure 11
-
-```{r}
-# Make the common legend
-cls_path <- file.path(cnt_exp_path, "cluster_1")
-current_map_s1 <- rast(
-    file.path(cls_path, "human_block",
-              "cum_curmap_human_block_cluster1.tif"))
-current_map_s1 <- st_as_stars(norm_rast(current_map_s1))
-legend_common <- ggplot() +
-    geom_stars(data = current_map_s1, 
-               na.action = na.omit) +
-    scale_fill_distiller("Current density\n ",
-        palette = "BuPu", breaks = c(0, 0.5, 1), 
-        labels = c("Low", "Med", "High"), direction = 1) +
-    ggnewscale::new_scale_fill() +
-    geom_stars(data = blocks_s2) +
-    scale_fill_manual(
-        "", values = col_blocks$color,
-        na.translate = FALSE,
-        guide = guide_legend(order = 1)) +
-    geom_sf(data = pas_c3, aes(color = "Protected areas"), 
-            fill = "transparent") +
-    geom_sf(data = bry, aes(color = "Critical regions"), 
-            fill = "transparent") +
-    scale_color_manual(NULL, values = c("gray40", "blue"),
-                      breaks = c('Protected areas', "Critical regions"),
-                      guide = guide_legend(order = 2)) +
-    theme(text = element_text(size = 14),
-          legend.position = "bottom",
-          legend.spacing.y = unit(0.1, 'cm'),
-          legend.box = "vertical",
-          plot.margin = unit(rep(0, 4), "cm"),
-          legend.key.height = unit(0.3,"cm"),
-          legend.key.width = unit(0.4,"cm"),
-          legend.margin = margin(rep(0.2, 4)),
-          legend.box.margin = margin(rep(0.1, 4)),
-          legend.title = element_text(size = 11))
-legend_common <- get_legend(legend_common)
-
-ggarrange(ggarrange(plot_c1, plot_c2, 
-                    plot_c3, ncol = 3), 
-          ggplot() + theme_void(),
-          legend_common, ggplot() + theme_void(),
-          nrow = 4, heights = c(3, -0.3, 1, -0.2))
-
-ggsave(file.path(fg_path, "figureS9_clusters_190w_170h_500dpi_1c.png"), 
-       bg = "white", width = 190, height = 170, 
-       units = "mm", dpi = 500)
-```
-
-### Figure *: cross-section of the corridors
-
-Abandoned figure.
-
-```{r}
-load(file.path(cnt_exp_path, "corridors_sca2_statistics.rda"))
-
-norm_data <- function(s){
-    (s - min(s)) / (max(s) - min(s))
-}
-
-fg_list <- lapply(lcps_sca2_statistics, function(each){
-    x_nm <- ifelse(names(each)[1] == "lat", "Latitude", "Longitude")
-    vals <- each
-    if ( x_nm == "Latitude") {
-        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
-            min(vals[vals$variable == "Elevation", "value"])
-        vals[vals$variable == "Elevation", "value"] <- 
-            norm_data(vals[vals$variable == "Elevation", "value"])
-        ggplot() +
-            geom_area(data = vals %>% filter(variable == "Elevation"),
-                      aes(x = lat, y = value, fill = "Elevation"), 
-                      color = "transparent",
-                      show.legend = TRUE) +
-            scale_fill_manual(NULL, values = "grey",
-                              breaks = 'Elevation',
-                              guide = guide_legend(
-                                  override.aes = list(linetype = "blank", 
-                                                      shape = NA))) +
-            geom_line(data = vals %>% filter(variable != "Elevation"), 
-                      aes(x = lat, y = value, color = variable),
-                      linewidth = 0.6) +
-            scale_color_brewer("", palette = "Dark2",
-                               guide = guide_legend(
-                                   override.aes = list(fill = NA))) +
-            scale_y_continuous(
-                "Cropland coverage", 
-                sec.axis = sec_axis(~ . * 1, name = "NDVI")
-            ) + xlab(x_nm) +
-            annotate(geom = "text", x = min(vals[, 1]) - 0.05, y = 0.5, 
-                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
-                     color = "red", size = 3, angle = 90) +
-            theme_classic() +
-            theme(legend.position = "top")+
-            theme(text = element_text(size = 12),
-                  legend.position = "bottom")
-    } else {
-        ele_dif <- max(vals[vals$variable == "Elevation", "value"]) - 
-            min(vals[vals$variable == "Elevation", "value"])
-        vals[vals$variable == "Elevation", "value"] <- 
-            norm_data(vals[vals$variable == "Elevation", "value"])
-            
-        ggplot() +
-            geom_area(data = vals %>% filter(variable == "Elevation"),
-                      aes(x = lon, y = value, fill = "Elevation"), 
-                      color = "transparent",
-                      show.legend = TRUE) +
-            scale_fill_manual(NULL, values = "grey",
-                              breaks = 'Elevation',
-                              guide = guide_legend(
-                                  override.aes = list(linetype = "blank", 
-                                                      shape = NA))) +
-            geom_line(data = vals %>% filter(variable != "Elevation"), 
-                      aes(x = lon, y = value, color = variable),
-                      linewidth = 0.6) +
-            scale_color_brewer("", palette = "Dark2",
-                               guide = guide_legend(
-                                   override.aes = list(fill = NA))) +
-            scale_y_continuous(
-                "Cropland coverage", 
-                sec.axis = sec_axis(~ . * 1, name = "NDVI")) + xlab(x_nm) +
-            annotate(geom = "text", x = min(vals[, 1]) - 0.03, y = 0.5, 
-                     label = sprintf("Elevation difference: %.1f m", ele_dif), 
-                     color = "red", size = 3, angle = 90) +
-            theme_classic() +
-            theme(legend.position = "top") +
-            theme(text = element_text(size = 12),
-                  legend.position = "bottom")
-    }
-})
-
-ggarrange(plotlist = fg_list, nrow = 3, ncol = 2,
-          labels = LETTERS[1:6], font.label = list(size = 12),
-          common.legend = TRUE, legend = "top")
-
-ggsave(file.path(fg_path, "figure10_path_analysis_190w_181h_500dpi_2c.png"), 
-       bg = "white", width = 190, height = 181, 
-       units = "mm", dpi = 500)
 ```
