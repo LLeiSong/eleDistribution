@@ -1,7 +1,10 @@
+library(sf)
+library(terra)
 library(gdistance)
 library(pbmcapply)
 library(rgrass)
 library(sfnetworks)
+library(rmapshaper)
 
 # Define the function to convert raster to polylines
 raster_to_lines <- function(src_path, 
@@ -37,12 +40,19 @@ raster_to_lines <- function(src_path,
     read_VECT("lcps") %>% st_as_sf()
 }
 
+# Set directories
+pat_path <- file.path("data/vars_patch")
+cnt_path <- file.path("data/connectivity")
+cnt_exp_path <- file.path("results/connectivity")
+
 # Read the "cost" to calculate the LSP
+habitat_clusters <- st_read(file.path(cnt_path, "habitat_clusters.geojson"))
 curmap <- rast(file.path(cnt_path, "suitability.asc"))
 curmap[is.na(curmap)] <- 0
 tr <- transition(raster(curmap), transitionFunction = mean, directions = 16)
 
 borders <- st_cast(habitat_clusters,"LINESTRING")
+n_iteration <- 1000
 lcps <- do.call(rbind, pbmclapply(1:n_iteration, function(n){
     seed <- 100 + n
     # Get the random coordinates along the borders
@@ -52,7 +62,7 @@ lcps <- do.call(rbind, pbmclapply(1:n_iteration, function(n){
     
     # Loop over to calculate the distance
     pairs <- list(c(1, 2), c(1, 3), c(2, 3))
-    names(pairs) <- c("1to2", "1to3", "2to3") # Not consider assymetric
+    names(pairs) <- c("1to2", "1to3", "2to3") # Not consider asymmetric
     do.call(rbind, lapply(1:length(pairs), function(ind){
         pair <- pairs[[ind]]; nm <- names(pairs)[ind]
         coords_pair <- as.matrix(coords[pair, c("X", "Y")])
@@ -74,12 +84,12 @@ cropland <- subset(vars, "cropland_ratio_3")
 cropland[cropland < 0.97] <- NA
 lcp_accum <- rasterize(lcps, curmap, fun = 'count') %>% 
     mask(habitat_clusters, inverse = TRUE, updatevalue = NA)
-lcps_all <- lcp_accum > 40
+lcps_all <- lcp_accum > 50
 lcps_all[isFALSE(lcps_all)] <- NA
 lcps_all <- mask(lcps_all, cropland, inverse = TRUE, updatevalue = NA)
 writeRaster(lcps_all, file.path(cnt_exp_path, "lcps_all.tif"), 
             datatype = "INT1U", overwrite = TRUE)
-lcps_common <- lcp_accum > 120
+lcps_common <- lcp_accum > 200
 lcps_common[isFALSE(lcps_common)] <- NA
 lcps_common <- mask(lcps_common, cropland, inverse = TRUE, updatevalue = NA)
 writeRaster(lcps_common, file.path(cnt_exp_path, "lcps_common.tif"), 
@@ -116,21 +126,33 @@ lcps <- lcps_all %>% slice(unique(unlist(st_intersects(lcps_common, .)))) %>%
     ms_simplify(0.05)
 
 # Now prune the selected lines
+borders_buf <- habitat_clusters %>% 
+    st_buffer(res(curmap)[1] * 1.5) %>% st_cast("LINESTRING")
 lcps_simplified <- do.call(rbind, lapply(lcps$group, function(ind){
     lcp <- lcps %>% filter(group == ind)
     net <- as_sfnetwork(lcp %>% st_cast("LINESTRING"), directed = FALSE) %>% 
         activate("edges")
     
-    pts <- st_cast(lcp, "POINT") %>% 
-        st_coordinates() %>% data.frame() %>% 
-        filter(Y == min(Y) | Y == max(Y)) %>% 
-        st_as_sf(coords = c("X", "Y"), crs = 4326)
+    # Get points
+    pts <- st_intersection(borders_buf, lcp) %>% 
+        st_cast("MULTIPOINT") %>% st_cast("POINT")
     
-    paths <- st_network_paths(net, from = pts[1, ], to = pts[2, ])
-    ids <- paths %>% slice(1) %>% pull(edge_paths) %>% unlist()
-    st_as_sf(slice(activate(net, "edges"), ids), "edges")
-})) |> group_by(group) |>
-    summarise() %>% st_cast("MULTILINESTRING") %>% 
-    select(group)
+    clusters <- unique(pts$cluster)
+    pts_cluster1 <- pts %>% filter(cluster == clusters[1])
+    pts_cluster2 <- pts %>% filter(cluster == clusters[2])
+    
+    do.call(
+        rbind, lapply(1:nrow(pts_cluster1), function(m){
+        do.call(rbind, lapply(1:nrow(pts_cluster2), function(n){
+            paths <- st_network_paths(
+                net, from = pts_cluster1[m, ], to = pts_cluster2[n, ])
+            ids <- paths %>% slice(1) %>% pull(edge_paths) %>% unlist()
+            st_as_sf(slice(activate(net, "edges"), ids), "edges") %>% 
+                st_cast("MULTILINESTRING") |> group_by(group) |>
+                summarise() %>% st_cast("MULTILINESTRING")
+        }))
+    })) %>% mutate(length = st_length(.)) %>% 
+        filter(length == min(length)) %>% select(-length)
+}))
 
 st_write(lcps_simplified, file.path(cnt_exp_path, "least_cost_examples.geojson"))

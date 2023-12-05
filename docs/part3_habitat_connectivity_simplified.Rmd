@@ -45,11 +45,12 @@ norm_rast <- function(s){
 habitat_clusters <- read_sf(
     file.path(data_path, "observations/habitat_clusters.geojson"))
 
+sf_use_s2(FALSE)
 habitat_clusters <- do.call(
     rbind, lapply(unique(habitat_clusters$cluster), 
                   function(index) {
-        habitat_clusters %>% filter(cluster == index) %>% 
-            st_union() %>% st_convex_hull() %>% 
+        habitat_clusters %>% filter(cluster == index) %>% st_buffer(1) %>% 
+            st_union() %>% st_buffer(-1) %>% 
             st_as_sf(cluster = index) %>% 
             rename(geometry = x)
 }))
@@ -65,6 +66,8 @@ habitat_clusters <- st_intersection(range_map, habitat_clusters) %>%
     mutate(name = c("North", "Southeast", "Southwest")) %>% 
     select(cluster, name)
 
+st_write(habitat_clusters, file.path(cnt_path, "habitat_clusters.geojson"))
+
 # And and accumulated current map
 curmap_long <- rast(file.path(cnt_exp_path, "mean_curmap.tif"))
 
@@ -72,7 +75,8 @@ curmap_long <- rast(file.path(cnt_exp_path, "mean_curmap.tif"))
 curmap_long <- mask(curmap_long, habitat_clusters, 
                     inverse = TRUE, updatevalue = NA)
 curmap_long <- norm_rast(curmap_long)
-writeRaster(curmap_long, file.path(cnt_exp_path, "connectivity_long.tif"))
+writeRaster(curmap_long, file.path(cnt_exp_path, "connectivity_long.tif"),
+            overwrite = TRUE)
 ```
 
 #### Potential corridors (current and future) between habitat clusters
@@ -147,8 +151,7 @@ pas <- read_sf(file.path(vct_path, "wdpa_selected.geojson")) %>%
     filter(DESIG_ENG %in% c("Game Reserve", "National Park",
                             "Game controlled area", "Conservation Area",
                             "Open area", "Wildlife Management Area"))
-habitat_clusters <- read_sf(file.path(data_path, "observations",
-                                      "habitat_clusters_aggre.geojson"))
+habitat_clusters <- read_sf(file.path(cnt_path, "habitat_clusters.geojson"))
 pas <- pas %>% slice(unique(unlist(st_intersects(habitat_clusters, pas))))
 pas <- st_join(pas, habitat_clusters) %>% 
     mutate(park_name = NAME) %>% 
