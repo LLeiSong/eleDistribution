@@ -1,3 +1,9 @@
+# Title: Function to calculate distance-based features
+# Created by: Lei Song
+# Created on: 09/09/23
+# Note      : The script uses GRASS GIS, so the users need to install and set up
+#             GRASS GIS before use it.
+
 distances <- function(data_path, vct_path, cs_path, scale) {
     ## Use GRASS GIS for speed
     library(sf)

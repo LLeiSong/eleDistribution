@@ -1,3 +1,12 @@
+# Title     : Extract possible shortest paths from current density map
+# Objective : To get some example paths from the current density map generated
+#             by circuitscape. 
+# Note      : The script uses GRASS GIS, so the users need to install and set
+#             up GRASS GIS before use it.
+# Created by: Lei Song
+# Created on: 09/09/23
+
+# Load libraries
 library(sf)
 library(terra)
 library(gdistance)

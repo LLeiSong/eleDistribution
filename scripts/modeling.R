@@ -1,3 +1,16 @@
+# Title: Functions for all modeling steps
+# Created by: Lei Song
+# Created on: 09/09/23
+# Note      :
+# - param_tuning_cs: tune parameters for coarse-scale modeling
+# - modeling_cs: coarse-scale modeling
+# - gather_metrics: gather necessary evaluation metrics
+# - sp_thin: spatial thinning for fine-scale modeling
+# - univariate_model: do univariate analysis for fine-scale modeling
+# - param_tuning_fs: tune parameters for fine-scale modeling
+# - modeling_fs: fine-scale modeling
+
+# Function to tune parameters for coarse-scale modeling
 param_tuning_cs <- function(census_block, scale, data_path, 
                             dst_path, sample_weight = TRUE){
     # Load packages
@@ -168,6 +181,7 @@ param_tuning_cs <- function(census_block, scale, data_path,
     log_close()
 }
 
+# Function for coarse-scale modeling
 modeling_cs <- function(params, 
                         census_block, occ_groups, 
                         scale, ratio, 
@@ -443,6 +457,7 @@ sp_thin <- function(occurrences,
         })
 }
 
+# Function to do univariate analysis
 univariate_model <- function(occ, variable, 
                              zone_to_thin = NULL, 
                              seed = 123) {
@@ -499,6 +514,7 @@ univariate_model <- function(occ, variable,
     })) %>% mutate(fold = paste("fold", 1:10, sep = "_"))
 }
 
+# Function to tune parameters for fine-scale modeling
 param_tuning_fs <- function(occ, 
                             data_path, 
                             dst_path,
@@ -586,6 +602,7 @@ param_tuning_fs <- function(occ,
     save(tuning_cv, file = file.path(dst_path, "tuning_cv_fs.rda"))
 }
 
+# Function for coarse-scale modeling
 modeling_fs <- function(params, occ, 
                         data_path, dst_path, 
                         zone_to_thin = NULL,

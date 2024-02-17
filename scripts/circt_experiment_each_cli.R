@@ -1,10 +1,11 @@
-# Title     : Calculate multi-species landscape connectivity
-# Objective : The main function to calculate the multi-species level habitat 
+# Title     : Calculate landscape connectivity for each habitat cluster
+# Objective : The main function to calculate the species level habitat 
 #             connectivity. Use the mean suitability values as the conductance. 
 # Created by: Lei Song
 # Created on: 09/09/23
 # Note      : Use cg+amg solver to avoid RAM crisis. The user can modify the
 #             loop part to an independent script to run on HPC to speed up.
+#             The users should install and set up Circuitscape before use it.
 
 # Load libraries
 library(sf)

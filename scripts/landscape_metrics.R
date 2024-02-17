@@ -1,3 +1,11 @@
+# Title: Functions to calculate landscape metrics
+# Created by: Lei Song
+# Created on: 09/09/23
+# Note      :
+# - landscape_l_metrics: calculate landscape-level metrics
+# - landscape_c_metrics: calculate class-level metrics
+# - landscape_c_metrics_mv: calculate class-level metrics with moving windows
+
 ######## Landscape level #############
 # Aggregation metric:
 ## Aggregation index (AI)
@@ -13,6 +21,7 @@
 ## Patch richness density (PRD)
 ## Simpson’s diversity index (SIDI)
 ## Shannon’s diversity index (SHDI)
+
 landscape_l_metrics <- function(landscape, template, dst_path) {
     # loading packages
     library(landscapemetrics)
@@ -84,6 +93,7 @@ landscape_l_metrics <- function(landscape, template, dst_path) {
 ## Largest patch index (LPI)
 ## Patch density (PD)
 ## Contiguity index distribution (mean) (CONTIG_MN)
+
 landscape_c_metrics <- function(landscape, template, dst_path) {
     # loading packages
     library(landscapemetrics)
@@ -197,6 +207,7 @@ landscape_c_metrics <- function(landscape, template, dst_path) {
     writeRaster(spatial_metrics, dst_path)
 }
 
+# With moving windows
 landscape_c_metrics_mv <- function(data_path, buf) {
     # loading packages
     library(landscapemetrics)
