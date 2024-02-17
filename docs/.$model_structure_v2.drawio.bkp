@@ -1,6 +1,6 @@
-<mxfile host="Electron" modified="2024-02-05T18:13:24.267Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/23.0.2 Chrome/120.0.6099.109 Electron/28.1.0 Safari/537.36" etag="SluqSztcgMb-Qwj5f9Y-" version="23.0.2" type="device">
+<mxfile host="Electron" modified="2023-11-29T18:49:31.194Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/22.1.2 Chrome/114.0.5735.289 Electron/25.9.4 Safari/537.36" etag="S5BMS9gfC5kGWlzRfEoi" version="22.1.2" type="device">
   <diagram name="Page-1" id="edf60f1a-56cd-e834-aa8a-f176f3a09ee4">
-    <mxGraphModel dx="954" dy="674" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" background="none" math="0" shadow="0">
+    <mxGraphModel dx="1340" dy="840" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" background="none" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -45,7 +45,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="hAxuNruYNlIUU9rqMdG9-9" value="&lt;b&gt;Projection at landscape scale&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" parent="1" vertex="1">
-          <mxGeometry x="408.5" y="500" width="107" height="40" as="geometry" />
+          <mxGeometry x="377" y="500" width="170" height="40" as="geometry" />
         </mxCell>
         <mxCell id="hAxuNruYNlIUU9rqMdG9-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;strokeWidth=2;" parent="1" source="hAxuNruYNlIUU9rqMdG9-20" target="hAxuNruYNlIUU9rqMdG9-25" edge="1">
           <mxGeometry relative="1" as="geometry" />
@@ -66,7 +66,7 @@
             <mxPoint x="50" y="-3" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="hAxuNruYNlIUU9rqMdG9-23" value="&lt;b&gt;Fine-scale&lt;br&gt;environmental variables&lt;/b&gt;&lt;br&gt;(0.5 arc-min)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;" parent="1" vertex="1">
+        <mxCell id="hAxuNruYNlIUU9rqMdG9-23" value="&lt;b&gt;Fine-scale&lt;br&gt;environmental variables&lt;/b&gt;&lt;br&gt;(1 km or 0.5 arc-min)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;" parent="1" vertex="1">
           <mxGeometry x="748" y="316" width="150" height="60" as="geometry" />
         </mxCell>
         <mxCell id="hAxuNruYNlIUU9rqMdG9-31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;strokeWidth=2;" parent="1" source="hAxuNruYNlIUU9rqMdG9-25" target="hAxuNruYNlIUU9rqMdG9-29" edge="1">
@@ -115,19 +115,14 @@
         <mxCell id="hAxuNruYNlIUU9rqMdG9-48" value="Integration" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;rotation=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
           <mxGeometry x="782" y="528" width="120" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="hAxuNruYNlIUU9rqMdG9-51" value="&lt;b&gt;Climatic variables&lt;/b&gt;&amp;nbsp;&lt;br&gt;(0.5 arc-min)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=0" parent="1" vertex="1">
+        <mxCell id="hAxuNruYNlIUU9rqMdG9-51" value="&lt;b&gt;Climatic var.&lt;/b&gt; (0.5 arc-min)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=0" parent="1" vertex="1">
           <mxGeometry x="203" y="463" width="150" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="hAxuNruYNlIUU9rqMdG9-55" value="&lt;br&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;strokeWidth=2;fontSize=11;" parent="1" source="hAxuNruYNlIUU9rqMdG9-52" target="hAxuNruYNlIUU9rqMdG9-9" edge="1">
+        <mxCell id="hAxuNruYNlIUU9rqMdG9-55" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;strokeWidth=2;fontSize=11;" parent="1" source="hAxuNruYNlIUU9rqMdG9-52" target="hAxuNruYNlIUU9rqMdG9-9" edge="1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="359" y="510" />
             </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="F-sF9ZbVyt4GsyIcSPkP-1" value="Scale &lt;br&gt;match" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="hAxuNruYNlIUU9rqMdG9-55">
-          <mxGeometry x="-0.2073" relative="1" as="geometry">
-            <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="hAxuNruYNlIUU9rqMdG9-52" value="&lt;span&gt;&lt;b&gt;Landscape metrics &amp;amp; &lt;br&gt;other environmental var. &lt;/b&gt;&lt;br&gt;(&lt;/span&gt;Focal calculation in moving windows at original resolution)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fontStyle=0;align=left;" parent="1" vertex="1">
