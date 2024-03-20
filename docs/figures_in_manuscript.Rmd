@@ -34,9 +34,9 @@ fg_path <- here("docs/figures")
 ```
 
 ## Methodology
-### Figure 1: study area
+### Figure 2: Occurrence datasets
 
-Figure 1 is the figure of study area, datasets, etc.
+Figure 2 is the figure of datasets, etc.
 
 ```{r}
 library(ggpattern)
@@ -58,7 +58,15 @@ zone_to_thin <- read_sf(
     mutate(zone = "Spatially-thin region")
 occ <- read_sf(
     file.path(data_path, "observations", "ele_occurrence.geojson")) %>% 
-    mutate(occ = "Occurrences")
+    mutate(occ = "GBIF")
+
+fname <- file.path(data_path, "observations/genetype_dataset_15_17.csv")
+occ2 <- read.csv(fname, stringsAsFactors = FALSE)
+occ2 <- st_as_sf(occ2[, c("Lat", "Long")], 
+                coords = c("Long", "Lat"),
+                crs = 4326) %>% 
+    mutate(occ = "Lohay et al. (2020)")
+occ <- rbind(occ, occ2)
 
 # Plot
 ggplot() +
@@ -105,13 +113,16 @@ ggplot() +
             order = 4, label.hjust = 0)) +
     ggnewscale::new_scale_fill() +
     ggnewscale::new_scale_color() +
-    geom_sf(data = occ, aes(size = occ), stroke = 0.2,
-            color = "white", fill = "blue",
-            pch = 21, show.legend = "point") +
-    scale_size_manual(
-        NULL, values = 1.0, 
+    geom_sf(data = occ, aes(shape = occ, fill = occ), 
+            color = "white", size = 1,
+            stroke = 0.1, show.legend = "point") +
+    scale_shape_manual(
+        "Occurrence", values = c(21, 24),
         guide = guide_legend(
             override.aes = list(linetype = "blank"),
+            order = 1, label.hjust = 0)) +
+    scale_fill_manual("Occurrence", values = c("blue", "#00A087B2"),
+                      guide = guide_legend(
             order = 1, label.hjust = 0)) +
     theme_bw() +
     theme(text = element_text(size = 11),
@@ -172,159 +183,9 @@ eval_fine_integrated <- eval_fine_integrated %>%
     summarise_all(list(mean = mean, sd = sd, ci = ci))
 ```
 
-### Figure 3: variable importance at regional scale
+### Figure 3: predicted suitability maps
 
-```{r}
-library(tidytext)
-
-# Fix a name lost bug here
-nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)), 
-         "NDVI (dry season)", "NDVI (wet season)", "NDVI seasonality",
-         "Road density", "River density", "Settlement density",
-         "Surface roughness", "Patch density", "Patch richness density",
-         "Shannon's diversity index", "Cropland edge density", 
-         "Edge density of closed canopy habitat", 
-         "Mean of Contiguity index (open habitat)", 
-         "Patch density (open habitat)", "Coverage of open habitat", 
-         "Coverage of waterbodies")
-
-abs_mean <- function(v) mean(abs(v))
-var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
-    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
-    
-    do.call(rbind, lapply(runs, function(run) {
-        shap_train <- run$variable_analysis$SHAP$train %>% 
-            as_tibble() %>% 
-            summarise(across(all_of(names(.)), abs_mean))
-        names(shap_train) <- nms
-        shap_test <- run$variable_analysis$SHAP$test %>% 
-            as_tibble() %>% 
-            summarise(across(all_of(names(.)), abs_mean))
-        names(shap_test) <- nms
-        rbind(shap_train %>% mutate(type = "train"),
-        shap_test %>% mutate(type = "test"))
-    })) %>% mutate(scale = scale)
-}))
-
-## Reshape the table
-var_imp <- var_imp %>% 
-    pivot_longer(cols = rev(names(var_imp))[-c(1, 2)],
-                 names_to = "variable", values_to = "value") %>% 
-    mutate(scale = factor(scale, levels = c(2.5, 5, 10))) %>% 
-    mutate(type = factor(type, levels = c("train", "test")))
-var_imp <- var_imp %>% filter(type == "test") %>% 
-    group_by(type, scale, variable) %>% 
-    summarise(value = mean(value)) %>% ungroup()
-var_imp_overall <- var_imp %>% group_by(variable) %>% 
-    summarise(value = mean(value)) %>% 
-    mutate(scale = "overall") %>% 
-    mutate(value = value * 1000) %>% 
-    arrange(value)
-var_imp_overall <- var_imp_overall %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp_overall$variable))
-var_imp <- var_imp %>% group_by(scale, variable) %>% 
-    summarise(value = mean(value)) %>% 
-    mutate(value = value * 1000) %>% 
-    mutate(scale = factor(
-        scale, levels = c("2.5", "5", "10"),
-        labels = c("2.5 minutes", 
-                   "5 minutes", "10 minutes"))) %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp_overall$variable))
-
-ggplot(var_imp, aes(x = variable, y = value)) +
-    geom_bar(data = var_imp_overall, aes(fill = "Overall"),
-             stat = "identity", color = "transparent",
-             position="identity") +
-    geom_point(aes(color = scale), shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.01, color = scale), 
-               shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.05, color = scale), 
-               shape = "|", size = 4) +
-    geom_point(aes(y = value + 0.09, color = scale), 
-               shape = "|", size = 4) +
-    scale_fill_manual(NULL, values = "black",
-                      breaks = 'Overall') +
-    scale_color_brewer("Scale", palette = "Dark2") +
-    ylab('mean(|Shapley value|) * 1000') +
-    xlab('Environmental variable') +
-    coord_flip() +
-    theme_pubclean() +
-    theme(text = element_text(size = 12, color = "black"),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8), color = "black"),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top", legend.justification = 'right',
-          strip.text.x = element_text(size = 12, face = "bold")) +
-    guides(fill = guide_legend(nrow = 1))
-
-ggsave(file.path(fg_path, "figure5_var_imp_coarse_140w_112h_500dpi_1.5c.png"), 
-       bg = "white", width = 140, height = 112, 
-       units = "mm", dpi = 500)
-```
-
-### Figure 4: variable importance at landscape scale
-
-```{r}
-# Define names
-nms <- c("BIO4", "NDVI seasonality",
-         "Distance to settlements", "Distance to waterbodies",
-         "Vector ruggedness measure (3km)", 
-         "Mean of Contiguity index (open habitat, 3km)", 
-         "Cropland edge density (7km)", "Coverage of open habitat (7km)",
-         "Patch density (open habitat, 3km)")
-
-abs_mean <- function(v) mean(abs(v))
-load(file.path(result_path, "runs_fs.rda"))
-var_imp <- do.call(rbind, lapply(runs, function(run) {
-    shap_test <- run$variable_analysis$SHAP$test %>% 
-        as_tibble() %>% 
-        summarise(across(all_of(names(.)), abs_mean))
-    names(shap_test) <- nms
-    shap_test
-})); rm(runs)
-
-## Reshape the table
-var_imp <- var_imp %>% 
-    pivot_longer(
-        cols = names(var_imp),
-        names_to = "variable", values_to = "value")
-var_imp <- var_imp %>% 
-    group_by(variable) %>% 
-    summarise(value = mean(value)) %>% 
-    ungroup() %>% arrange(value)
-var_imp <- var_imp %>% 
-    mutate(value = value * 1000) %>% 
-    mutate(variable = factor(
-        variable, levels = var_imp$variable))
-
-ggplot(var_imp, aes(x = variable, y = value)) +
-    geom_bar(fill = "black",
-             stat = "identity", color = "transparent",
-             position="identity") +
-    ylab('mean(|Shapley value|) * 1000') +
-    xlab('Environmental variable') +
-    coord_flip() +
-    theme_pubclean() +
-    theme(text = element_text(size = 12, color = "black"),
-          axis.text.x = element_text(angle = 0),
-          axis.text = element_text(size = rel(0.8), color = "black"),
-          axis.title = element_text(size = rel(1)),
-          legend.text = element_text(size = rel(1)),
-          legend.position = "top", legend.justification = 'right',
-          strip.text.x = element_text(size = 12, face = "bold")) +
-    guides(fill = guide_legend(nrow = 1))
-
-ggsave(file.path(fg_path, "figure6_var_imp_fine_140w_56h_500dpi_1.5c.png"), 
-       bg = "white", width = 140, height = 56, 
-       units = "mm", dpi = 500)
-```
-
-### Figure 5: predicted suitability maps
-
-Figure 5 is the combination of predicted suitability maps.
+Figure 3 is the combination of predicted suitability maps.
 
 ```{r}
 # Read layers
@@ -406,8 +267,158 @@ ggarrange(g1, g2, g3,
           font.label = list(size = 18, color = "black", face = "bold"),
           common.legend = TRUE, legend = "bottom")
 
-ggsave(file.path(fg_path, "figure7_suit_maps_190w_65h_500dpi_2c.png"), 
+ggsave(file.path(fg_path, "figure3_suit_maps_190w_65h_500dpi_2c.png"), 
        bg = "white", width = 190, height = 70, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 4: variable importance at regional scale
+
+```{r}
+library(tidytext)
+
+# Fix a name lost bug here
+nms <- c(paste0("BIO", c(1, 4, 7, 12, 15)), 
+         "NDVI (dry season)", "NDVI (wet season)", "NDVI seasonality",
+         "Road density", "River density", "Settlement density",
+         "Surface roughness", "Patch density", "Patch richness density",
+         "Shannon's diversity index", "Cropland edge density", 
+         "Edge density (closed canopy habitat)", 
+         "Mean of Contiguity index (open habitat)", 
+         "Patch density (open habitat)", "Coverage of open habitat", 
+         "Coverage of waterbodies")
+
+abs_mean <- function(v) mean(abs(v))
+var_imp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    do.call(rbind, lapply(runs, function(run) {
+        shap_train <- run$variable_analysis$SHAP$train %>% 
+            as_tibble() %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_train) <- nms
+        shap_test <- run$variable_analysis$SHAP$test %>% 
+            as_tibble() %>% 
+            summarise(across(all_of(names(.)), abs_mean))
+        names(shap_test) <- nms
+        rbind(shap_train %>% mutate(type = "train"),
+        shap_test %>% mutate(type = "test"))
+    })) %>% mutate(scale = scale)
+}))
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(cols = rev(names(var_imp))[-c(1, 2)],
+                 names_to = "variable", values_to = "value") %>% 
+    mutate(scale = factor(scale, levels = c(2.5, 5, 10))) %>% 
+    mutate(type = factor(type, levels = c("train", "test")))
+var_imp <- var_imp %>% filter(type == "test") %>% 
+    group_by(type, scale, variable) %>% 
+    summarise(value = mean(value)) %>% ungroup()
+var_imp_overall <- var_imp %>% group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(scale = "overall") %>% 
+    mutate(value = value * 1000) %>% 
+    arrange(value)
+var_imp_overall <- var_imp_overall %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+var_imp <- var_imp %>% group_by(scale, variable) %>% 
+    summarise(value = mean(value)) %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(scale = factor(
+        scale, levels = c("2.5", "5", "10"),
+        labels = c("2.5 minutes", 
+                   "5 minutes", "10 minutes"))) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp_overall$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(data = var_imp_overall, aes(fill = "Overall"),
+             stat = "identity", color = "transparent",
+             position="identity") +
+    geom_point(aes(color = scale), shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.01, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.05, color = scale), 
+               shape = "|", size = 4) +
+    geom_point(aes(y = value + 0.09, color = scale), 
+               shape = "|", size = 4) +
+    scale_fill_manual(NULL, values = "black",
+                      breaks = 'Overall') +
+    scale_color_brewer("Scale", palette = "Dark2") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure4_var_imp_coarse_140w_112h_500dpi_1.5c.png"), 
+       bg = "white", width = 140, height = 112, 
+       units = "mm", dpi = 500)
+```
+
+### Figure 5: variable importance at landscape scale
+
+```{r}
+# Define names
+nms <- c("BIO4", "NDVI seasonality",
+         "Distance to settlements", "Distance to waterbodies",
+         "Vector ruggedness measure (3km)", 
+         "Mean of Contiguity index (open habitat, 3km)", 
+         "Cropland edge density (7km)", "Coverage of open habitat (7km)",
+         "Patch density (open habitat, 3km)")
+
+abs_mean <- function(v) mean(abs(v))
+load(file.path(result_path, "runs_fs.rda"))
+var_imp <- do.call(rbind, lapply(runs, function(run) {
+    shap_test <- run$variable_analysis$SHAP$test %>% 
+        as_tibble() %>% 
+        summarise(across(all_of(names(.)), abs_mean))
+    names(shap_test) <- nms
+    shap_test
+})); rm(runs)
+
+## Reshape the table
+var_imp <- var_imp %>% 
+    pivot_longer(
+        cols = names(var_imp),
+        names_to = "variable", values_to = "value")
+var_imp <- var_imp %>% 
+    group_by(variable) %>% 
+    summarise(value = mean(value)) %>% 
+    ungroup() %>% arrange(value)
+var_imp <- var_imp %>% 
+    mutate(value = value * 1000) %>% 
+    mutate(variable = factor(
+        variable, levels = var_imp$variable))
+
+ggplot(var_imp, aes(x = variable, y = value)) +
+    geom_bar(fill = "black",
+             stat = "identity", color = "transparent",
+             position="identity") +
+    ylab('mean(|Shapley value|) * 1000') +
+    xlab('Environmental variable') +
+    coord_flip() +
+    theme_pubclean() +
+    theme(text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 0),
+          axis.text = element_text(size = rel(0.8), color = "black"),
+          axis.title = element_text(size = rel(1)),
+          legend.text = element_text(size = rel(1)),
+          legend.position = "top", legend.justification = 'right',
+          strip.text.x = element_text(size = 12, face = "bold")) +
+    guides(fill = guide_legend(nrow = 1))
+
+ggsave(file.path(fg_path, "figure5_var_imp_fine_140w_56h_500dpi_1.5c.png"), 
+       bg = "white", width = 140, height = 56, 
        units = "mm", dpi = 500)
 ```
 
@@ -1179,23 +1190,51 @@ ggsave(file.path(fg_path, "figureS4_eval_coarse_90w_80h_500dpi_1c.png"),
 ### Supplementary Figure S5-S7: Response curve of all variables at coarse scale
 
 ```{r}
+var_rsp <- do.call(rbind, lapply(c(10, 5, 2.5), function(scale){
+    template <- rast(file.path(hr_path, sprintf("bios_%s.tif", scale)), 
+                     lyrs = 1)
+    ar <- global(cellSize(template, unit = "km"), "mean", na.rm = TRUE)[[1]]
+    
+    load(file.path(result_path, sprintf("runs_%s.rda", scale)))
+    
+    dat <- do.call(rbind, lapply(runs, function(run) {
+        shaps <- run$shap_dependences$dependences_cont
+        names(shaps) <- nms
+        do.call(rbind, lapply(nms, function(nm) {
+            shaps[[nm]] %>% mutate(variable = nm)
+        }))
+    })) %>% mutate(scale = scale)
+    
+    dat[dat$variable %in% 
+            c("Road density", "River density", "Settlement density"), 'x'] <- 
+        dat[dat$variable %in% 
+            c("Road density", "River density", "Settlement density"), 'x'] / ar
+    rownames(dat) <- NULL
+    dat
+}))
+
+## Reformat the table
+var_rsp <- var_rsp %>% 
+    mutate(scale = factor(scale, levels = c("2.5", "5", "10")))
+
 # Types
-type_a <- c(nms[1:8], "Cropland edge density", 
+type_a <- c(nms[1:8], "River density", "Road density", 
+            "Settlement density", "Cropland edge density", 
             "Patch density", "Coverage of waterbodies", 
             "Patch density (open habitat)", 
-            "Edge density of closed canopy habitat")
-type_b <- c("River density", "Road density", "Settlement density",
+            "Edge density (closed canopy habitat)")
+type_b <- c("Surface roughness",
             "Mean of Contiguity index (open habitat)")
-type_c <- c("Shannon's diversity index", "Surface roughness",
-            "Patch richness density", "Coverage of open habitat")
+type_c <- c("Shannon's diversity index", "Patch richness density", 
+            "Coverage of open habitat")
 
 # x value transition
 group_orig <- c(nms[1:8], "Mean of Contiguity index (open habitat)",
-                "Shannon's diversity index", "Coverage of open habitat")
+                "Shannon's diversity index", "Coverage of open habitat",
+                "Patch density (open habitat)", "Patch density", 
+                "Edge density (closed canopy habitat)")
 group_log <- c("Cropland edge density", 
-               "Patch density", "Coverage of waterbodies", 
-               "Patch density (open habitat)", 
-               "Edge density of closed canopy habitat",
+               "Coverage of waterbodies", 
                "River density", "Road density", 
                "Settlement density", "Surface roughness", 
                "Patch richness density")
@@ -1259,11 +1298,16 @@ fg_orig_list <- lapply(group_orig, function(nm) {
                   legend.position = "top") +
             guides(fill = guide_legend(nrow = 1))
     } else {
-        ggplot(var_rsp %>% 
-                   filter(variable == nm) %>% 
-                   group_by(scale) %>% 
-                   sample_n(size = 7000) %>%  
-                   ungroup()) +
+        data <- var_rsp %>% 
+            filter(variable == nm) %>% 
+            group_by(scale) %>% 
+            sample_n(size = 7000) %>%  
+            ungroup()
+            
+        if (nm == "Patch density (open habitat)"){
+            data <- data %>% filter(x < 500)
+        }
+        ggplot(data) +
             geom_point(aes(x = x, y = y, fill = scale), pch = 21,
                        color = "white", size = 0.8, stroke = 0.2) +
             geom_smooth(aes(x = x, y = y, color = scale, fill = scale),
@@ -1356,23 +1400,23 @@ fg_type_b <- fg_list[id_type_b]
 fg_type_c <- fg_list[id_type_c]
 
 ggarrange(plotlist = fg_type_a, 
-          ncol = 3, nrow = 5,
+          ncol = 3, nrow = 6,
           common.legend = TRUE)
 
 ggsave(file.path(fg_path, "figureS5_variable_response_a.png"), 
-       width = 6.5, height = 8.5, dpi = 500, bg = "white")
+       width = 6.5, height = 9.5, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_b, 
-          ncol = 2, nrow = 2,
+          ncol = 2, nrow = 1,
           common.legend = TRUE)
 
 ggsave(file.path(fg_path, "figureS6_variable_response_b.png"), 
-       width = 4.3, height = 4, dpi = 500, bg = "white")
+       width = 4.3, height = 2.5, dpi = 500, bg = "white")
 
 ggarrange(plotlist = fg_type_c, 
           ncol = 2, nrow = 2,
           common.legend = TRUE)
 
 ggsave(file.path(fg_path, "figureS7_variable_response_c.png"), 
-       width = 4.3, height = 4, dpi = 500, bg = "white")
+       width = 4.3, height = 4.3, dpi = 500, bg = "white")
 ```
