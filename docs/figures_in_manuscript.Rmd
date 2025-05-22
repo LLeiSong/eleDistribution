@@ -3,6 +3,8 @@ title: "Figures used in manuscript and supplementary material"
 author: "Lei Song"
 date: "2022-10-25"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -21,6 +23,8 @@ library(ggpubr)
 library(stars)
 library(ggsflabel)
 library(ggsci)
+library(ggfx)
+library(rnaturalearth)
 
 data_path <- here("data")
 rst_path <- file.path(data_path, "rasters")
@@ -69,7 +73,32 @@ occ2 <- st_as_sf(occ2[, c("Lat", "Long")],
 occ <- rbind(occ, occ2)
 
 # Plot
-ggplot() +
+countries <- ne_countries(
+    type = 'countries', scale = 'large',
+    continent = "Africa", returnclass = 'sf')
+
+# Make overview
+overview <- ggplotGrob(
+    ggplot() +
+        with_shadow(
+            geom_sf(data = countries, fill = 'lightgrey', 
+                    color = 'black', linewidth = 0.2),
+            sigma = 1, x_offset = 2, y_offset = 2) +
+        geom_sf(data = study_area, fill = 'orange', 
+                color = 'orange', linewidth = 0) +
+        coord_sf(xlim = c(-17.892, 51.892), 
+                 ylim = c(-35.321, 37.715)) +
+        theme_transparent() +
+        theme(axis.title = element_blank(),
+              axis.text = element_blank(),
+              axis.ticks = element_blank(),
+              panel.grid.major = element_blank(),
+              plot.margin = unit(rep(-0.6, 4), "cm")))
+
+g1 <- ggplot() +
+    annotation_custom(grob = overview, 
+                      xmin = 37.8, xmax = 40.5,
+                      ymin = -2.65, ymax = -0.9) +
     geom_sf(data = study_area, 
             fill = "white", color = "black") +
     geom_sf(data = zone_to_thin, 
@@ -88,9 +117,8 @@ ggplot() +
         pattern = "magick",
         aes(pattern_type = 'Expert range map'),
         pattern_fill = 'black',
-        pattern_scale = 2,
-        pattern_aspect_ratio = 1,
-        pattern_density = 0.1,
+        pattern_density = 1,
+        pattern_res = 500,
         color = "black", fill = "lightgrey") +
     scale_pattern_type_manual(
         NULL, values = "left45",
@@ -104,7 +132,7 @@ ggplot() +
             aes(fill = density_bin), 
             color = "black", size = 0.3) +
     scale_fill_brewer(
-        "Population density\n(Census blocks)", 
+        "Census blocks (Elephants per km<sup>2</sup>)", 
         palette = "YlOrRd", direction = 1,
         guide = guide_legend(
             override.aes = list(linetype = "blank", 
@@ -114,6 +142,85 @@ ggplot() +
     ggnewscale::new_scale_fill() +
     ggnewscale::new_scale_color() +
     geom_sf(data = occ, aes(shape = occ, fill = occ), 
+            color = "white", size = 0.8,
+            stroke = 0.1, show.legend = "point") +
+    scale_shape_manual(
+        "Occurrence", values = c(21, 24),
+        guide = guide_legend(
+            override.aes = list(linetype = "blank"),
+            order = 1, label.hjust = 0)) +
+    scale_fill_manual("Occurrence", values = c("blue", "#00A087B2"),
+                      guide = guide_legend(
+                          order = 1, label.hjust = 0)) +
+    theme_bw() +
+    theme(text = element_text(size = 11),
+          axis.text = element_text(color = "black"),
+          axis.title = element_blank(),
+          legend.text = element_text(size = 11),
+          legend.spacing.y = unit(0.1, 'cm'),
+          legend.margin = margin(rep(0, 4)), 
+          legend.key.height= unit(0.4, 'cm'),
+          legend.key.width= unit(0.4, 'cm'),
+          legend.title = element_markdown(),
+          panel.grid.major = element_line(
+              color = "lightgrey", linetype = "dotted", linewidth = 0.3),
+          plot.margin = unit(c(-4.5, 0, 0, 0), "cm"),
+          legend.position = "bottom",
+          legend.box.just = "left",
+          legend.box = "vertical")
+
+legend <- get_legend(g1 + theme(plot.margin = unit(c(-3, 0, 2, 0), "cm")))
+
+g1 <- g1 + theme(legend.position = "none",
+                 plot.margin = unit(c(-4.5, 0, -1, 0), "cm"))
+
+occ_sub1 <- st_intersection(occ, zone_to_thin)
+expert_range_map_sub1 <- expert_range_map %>% 
+    slice(unique(unlist(st_intersects(occ_sub1, expert_range_map)))) %>% 
+    slice(1)
+census_blocks_sub1 <- census_blocks %>% 
+    slice(unique(unlist(st_intersects(expert_range_map_sub1, census_blocks))))
+occ_sub1 <- st_intersection(occ, expert_range_map_sub1)
+
+g2 <- ggplot() +
+    scale_fill_manual(
+        NULL, values = "lightblue",
+        breaks = 'Spatially-thin region',
+        guide = guide_legend(
+            override.aes = list(linetype = "blank", 
+                                shape = NA),
+            order = 3, label.hjust = 0)) +
+    ggnewscale::new_scale_fill() +
+    geom_sf_pattern(
+        data = expert_range_map_sub1, 
+        pattern = "magick",
+        aes(pattern_type = 'Expert range map'),
+        pattern_fill = 'black',
+        pattern_density = 1,
+        pattern_res = 500,
+        color = "black", fill = "lightgrey") +
+    scale_pattern_type_manual(
+        NULL, values = "left45",
+        breaks = "Expert range map",
+        guide = guide_legend(
+            override.aes = list(shape = NA),
+            order = 2, label.hjust = 0)) +
+    ggnewscale::new_scale_fill() +
+    ggnewscale::new_scale_color() +
+    geom_sf(data = census_blocks_sub1, 
+            aes(fill = density_bin), 
+            color = "black", size = 0.3) +
+    scale_fill_brewer(
+        "Population density\n(Census blocks)", 
+        palette = "YlOrRd", direction = 1,
+        guide = guide_legend(
+            override.aes = list(linetype = "blank", 
+                                shape = NA),
+            nrow = 3, title.position = "top", 
+            order = 4, label.hjust = 0)) +
+    ggnewscale::new_scale_fill() +
+    ggnewscale::new_scale_color() +
+    geom_sf(data = occ_sub1, aes(shape = occ, fill = occ), 
             color = "white", size = 1,
             stroke = 0.1, show.legend = "point") +
     scale_shape_manual(
@@ -123,24 +230,24 @@ ggplot() +
             order = 1, label.hjust = 0)) +
     scale_fill_manual("Occurrence", values = c("blue", "#00A087B2"),
                       guide = guide_legend(
-            order = 1, label.hjust = 0)) +
-    theme_bw() +
+                          order = 1, label.hjust = 0)) +
+    theme_void() +
     theme(text = element_text(size = 11),
-          axis.text = element_text(color = "black"),
           legend.text = element_text(size = 11),
           legend.spacing.y = unit(0.1, 'cm'),
           legend.margin = margin(rep(0, 4)), 
           legend.key.height= unit(0.4, 'cm'),
           legend.key.width= unit(0.4, 'cm'),
-          panel.grid.major = element_line(
-              color = "lightgrey", linetype = "dotted", linewidth = 0.3),
-          plot.margin = unit(c(0.1, 0, 0, 0), "cm"),
-          legend.position = "bottom",
+          plot.margin = unit(c(-4.5, 0, -1, 0), "cm"),
+          legend.position = "none",
           legend.box.just = "left",
           legend.box = "vertical")
 
-ggsave(file.path(fg_path, "figure1_study_area_90w_130h_500dpi_1.5c.png"), 
-       bg = "white", width = 90, height = 130, 
+ggarrange(ggarrange(g1, g2, nrow = 1, widths = c(1, 0.8)), 
+          NULL, legend, NULL, nrow = 4, heights = c(3, -0.9, 1, 0.1))
+
+ggsave(file.path(fg_path, "figure1_study_area_140w_120h_500dpi_1.5c.png"), 
+       bg = "white", width = 140, height = 120, 
        units = "mm", dpi = 500)
 ```
 

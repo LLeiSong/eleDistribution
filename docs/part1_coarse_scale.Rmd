@@ -1796,31 +1796,3 @@ names(prediction) <- c("prediction", "standard deviation")
 fname <- file.path(result_path, "landscape_utility_10km_to_1km.tif")
 write_stars(merge(prediction), fname)
 ```
-
-### Modeling with Maxent (Just an experiment)
-
-```{r}
-# Test for Maxent
-## Prepare data
-source(here("scripts/gather_data.R"))
-census_block <- read_sf(
-    file.path(data_path, "observations/pseudo_blocks.geojson")) %>% 
-    filter(density > 0)
-occ <- read_sf(file.path(data_path, "observations/ele_occurrence.geojson"))
-dst_path <- file.path(data_path, "maxent")
-
-walk(c(10, 5, 2.5), function(scale) {
-    gather_data_maxent(census_block, occ, scale, hr_path, dst_path)
-})
-
-## Do modeling in Maxent binary
-## Auto features (Linear, Quadratic, Product, Hige features)
-## Create response curves, Do jackknife to measure variable importance
-## Output: Cloglog
-## Settings: 
-### Rgularization multiplier 2
-### Max number of background points: 2000
-### Subsampling for 10 times
-### Use the spatial thinned real occurrence as independent test
-```
-
